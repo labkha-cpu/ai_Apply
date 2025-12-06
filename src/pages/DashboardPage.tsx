@@ -10,13 +10,14 @@ import {
   AlertCircle, 
   Loader2, 
   X, 
-  Upload 
+  Upload,
+  HelpCircle
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // CONFIGURATION API
-// Correction 1 : L'URL pointe vers l'environnement 'v1' (sans /upload final)
-// Correction 2 : Mise à jour de l'ID API (qgbog8umw5) d'après votre console AWS
+// L'URL pointe vers l'environnement 'v1'
+// ID API mis à jour : qgbog8umw5
 // ---------------------------------------------------------------------------
 const API_URL = 'https://qgbog8umw5.execute-api.eu-west-1.amazonaws.com/v1'; 
 
@@ -173,7 +174,10 @@ const DashboardPage: React.FC = () => {
       
       const response = await fetch(`${API_URL}/upload`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          // Note: On n'ajoute pas 'mode: no-cors' ici car on a besoin de lire la réponse JSON
+        },
         body: JSON.stringify({ filename: file.name }),
       });
 
@@ -183,7 +187,7 @@ const DashboardPage: React.FC = () => {
         console.error('API Error:', response.status, errorText);
         
         if (response.status === 403 || response.status === 0) {
-           throw new Error("Erreur CORS ou Accès Interdit. Vérifiez que CORS est activé sur l'API Gateway et que l'URL est correcte.");
+           throw new Error("Erreur CORS (403). Activez CORS sur votre ressource API Gateway (Actions > Enable CORS).");
         }
         
         throw new Error(`Erreur API (${response.status}): ${errorText}`);
@@ -193,7 +197,6 @@ const DashboardPage: React.FC = () => {
       const { upload_url, key } = data;
 
       // ÉTAPE 2 : Uploader le fichier directement sur S3
-      // La Lambda force le Content-Type à 'application/pdf' pour la signature
       // IMPORTANT : Votre bucket S3 doit aussi avoir CORS activé pour accepter le PUT
       const uploadResponse = await fetch(upload_url, {
         method: 'PUT',
@@ -201,7 +204,12 @@ const DashboardPage: React.FC = () => {
         body: file,
       });
 
-      if (!uploadResponse.ok) throw new Error('Erreur lors du transfert vers S3 (Vérifiez les CORS du Bucket).');
+      if (!uploadResponse.ok) {
+         if (uploadResponse.status === 403) {
+            throw new Error('Erreur S3 CORS (403). Vérifiez la configuration CORS de votre Bucket S3.');
+         }
+         throw new Error('Erreur lors du transfert vers S3.');
+      }
 
       setUploadedKey(key);
       setStatus('analyzing');
@@ -215,7 +223,12 @@ const DashboardPage: React.FC = () => {
     } catch (error: any) {
       console.error(error);
       setStatus('error');
-      setErrorMessage(error.message || 'Une erreur est survenue.');
+      // On enrichit le message d'erreur pour l'utilisateur
+      if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
+          setErrorMessage('Bloqué par CORS. Configurez "Enable CORS" sur API Gateway et ajoutez une règle CORS sur le Bucket S3.');
+      } else {
+          setErrorMessage(error.message || 'Une erreur est survenue.');
+      }
     }
   };
 
@@ -275,7 +288,23 @@ const DashboardPage: React.FC = () => {
                 </p>
               )}
               {status === 'error' && (
-                <p className="text-sm text-red-600 flex items-center gap-2"><AlertCircle size={16} /> {errorMessage}</p>
+                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <p className="text-sm text-red-700 flex items-center gap-2 font-semibold">
+                       <AlertCircle size={16} /> Échec de l'upload
+                    </p>
+                    <p className="text-xs text-red-600 mt-1">{errorMessage}</p>
+                    {errorMessage.includes('CORS') && (
+                       <div className="mt-2 text-xs text-gray-600 bg-white p-2 rounded border border-gray-200">
+                          <strong>Action requise (AWS Console) :</strong>
+                          <ul className="list-disc pl-4 mt-1 space-y-1">
+                             <li>Allez dans API Gateway {'>'} Resources {'>'} /upload</li>
+                             <li>Cliquez sur "Actions" {'>'} "Enable CORS"</li>
+                             <li>Cochez "OPTIONS" et "POST", laissez Origin à "*", puis validez.</li>
+                             <li><strong>IMPORTANT :</strong> Redéployez l'API (Actions {'>'} Deploy API).</li>
+                          </ul>
+                       </div>
+                    )}
+                 </div>
               )}
               {status === 'success' && (
                 <div className="flex flex-col gap-2">
