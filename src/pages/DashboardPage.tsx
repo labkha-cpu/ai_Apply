@@ -15,13 +15,14 @@ import {
 
 // ---------------------------------------------------------------------------
 // CONFIGURATION API
-// Remplacez cette URL par celle de votre API Gateway (stage Prod ou Dev)
+// Correction : L'URL doit pointer vers l'environnement (Stage) 'v1'
+// et NE PAS inclure '/upload' à la fin, car le code l'ajoute plus bas.
 // ---------------------------------------------------------------------------
-const API_URL = 'https://qgbog8umw5.execute-api.eu-west-1.amazonaws.com/v1/upload'; 
+const API_URL = 'https://jqbog8umw5.execute-api.eu-west-1.amazonaws.com/v1'; 
 
 // ---------------------------------------------------------------------------
-// COMPOSANTS UI & MOCK DATA (Inclus pour corriger les erreurs de compilation)
-// Dans votre projet réel, conservez ces éléments dans leurs fichiers respectifs.
+// COMPOSANTS UI & MOCK DATA 
+// (Inclus pour la démo, à remettre dans leurs fichiers respectifs en prod)
 // ---------------------------------------------------------------------------
 
 // --- MOCK DATA ---
@@ -167,26 +168,40 @@ const DashboardPage: React.FC = () => {
 
     try {
       // ÉTAPE 1 : Obtenir l'URL présignée depuis votre Lambda
+      // L'appel devient : https://.../v1/upload (correct)
+      console.log(`Calling API: ${API_URL}/upload`);
+      
       const response = await fetch(`${API_URL}/upload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: file.name }),
       });
 
-      if (!response.ok) throw new Error('Erreur lors de la récupération du lien d\'upload.');
+      if (!response.ok) {
+        // Tentative de lire le corps de l'erreur pour plus de détails
+        const errorText = await response.text().catch(() => 'Erreur inconnue');
+        console.error('API Error:', response.status, errorText);
+        
+        if (response.status === 403 || response.status === 0) {
+           throw new Error("Erreur CORS ou Accès Interdit. Vérifiez que CORS est activé sur l'API Gateway et que l'URL est correcte.");
+        }
+        
+        throw new Error(`Erreur API (${response.status}): ${errorText}`);
+      }
 
       const data = await response.json();
       const { upload_url, key } = data;
 
       // ÉTAPE 2 : Uploader le fichier directement sur S3
       // La Lambda force le Content-Type à 'application/pdf' pour la signature
+      // IMPORTANT : Votre bucket S3 doit aussi avoir CORS activé pour accepter le PUT
       const uploadResponse = await fetch(upload_url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/pdf' },
         body: file,
       });
 
-      if (!uploadResponse.ok) throw new Error('Erreur lors du transfert vers S3.');
+      if (!uploadResponse.ok) throw new Error('Erreur lors du transfert vers S3 (Vérifiez les CORS du Bucket).');
 
       setUploadedKey(key);
       setStatus('analyzing');
