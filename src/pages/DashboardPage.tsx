@@ -15,10 +15,10 @@ import {
 
 // ---------------------------------------------------------------------------
 // CONFIGURATION API
-// Correction : L'URL doit pointer vers l'environnement (Stage) 'v1'
-// et NE PAS inclure '/upload' à la fin, car le code l'ajoute plus bas.
+// Correction 1 : L'URL pointe vers l'environnement 'v1' (sans /upload final)
+// Correction 2 : Mise à jour de l'ID API (qgbog8umw5) d'après votre console AWS
 // ---------------------------------------------------------------------------
-const API_URL = 'https://jqbog8umw5.execute-api.eu-west-1.amazonaws.com/v1'; 
+const API_URL = 'https://qgbog8umw5.execute-api.eu-west-1.amazonaws.com/v1'; 
 
 // ---------------------------------------------------------------------------
 // COMPOSANTS UI & MOCK DATA 
@@ -168,7 +168,7 @@ const DashboardPage: React.FC = () => {
 
     try {
       // ÉTAPE 1 : Obtenir l'URL présignée depuis votre Lambda
-      // L'appel devient : https://.../v1/upload (correct)
+      // L'appel devient : https://qgbog8umw5.../v1/upload
       console.log(`Calling API: ${API_URL}/upload`);
       
       const response = await fetch(`${API_URL}/upload`, {
