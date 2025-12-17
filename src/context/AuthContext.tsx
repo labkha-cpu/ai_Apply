@@ -39,7 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setStatus('unauthenticated');
   }, []);
 
-  const login = (email = 'demo.user@cvision.ai') => {
+  const login = (email = 'utilisateur@cvision.ai') => {
     const profile: UserProfile = { email, id: crypto.randomUUID() };
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(profile));
     setUser(profile);

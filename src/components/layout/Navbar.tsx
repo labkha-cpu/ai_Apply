@@ -53,7 +53,7 @@ const Navbar: React.FC = () => {
                 </span>
               )}
               <Button size="sm" variant={isAuthenticated ? 'outline' : 'secondary'} onClick={handleAuth}>
-                {isAuthenticated ? 'Se déconnecter' : 'Connexion demo'}
+                {isAuthenticated ? 'Se déconnecter' : 'Connexion'}
               </Button>
             </div>
             <Link to="/dashboard">
@@ -90,7 +90,7 @@ const Navbar: React.FC = () => {
             onClick={handleAuth}
             className="flex items-center justify-between py-2 text-base font-medium text-gray-700 border border-gray-200 rounded-lg px-3"
           >
-            <span>{isAuthenticated ? 'Se déconnecter' : 'Connexion demo'}</span>
+            <span>{isAuthenticated ? 'Se déconnecter' : 'Connexion'}</span>
             {isAuthenticated && <span className="text-xs text-gray-500">{user?.email}</span>}
           </button>
           <Link to="/dashboard" onClick={() => setIsOpen(false)}>

@@ -47,20 +47,17 @@ const plans: PricingPlan[] = [
 ];
 
 const PricingPage: React.FC = () => {
-  const { isAuthenticated, login } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [loadingPlan, setLoadingPlan] = useState<PlanCode | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const ensureAuth = () => {
-    if (!isAuthenticated) {
-      login();
-    }
-  };
-
   const handleCheckout = async (plan: PlanCode) => {
     setError(null);
-    ensureAuth();
+    if (!isAuthenticated) {
+      setError('Connectez-vous avant de lancer le paiement.');
+      return;
+    }
     setLoadingPlan(plan);
     try {
       const session = await createCheckoutSession(plan);
@@ -74,7 +71,10 @@ const PricingPage: React.FC = () => {
 
   const openPortal = async () => {
     setError(null);
-    ensureAuth();
+    if (!isAuthenticated) {
+      setError('Connectez-vous pour accéder au portail client.');
+      return;
+    }
     setPortalLoading(true);
     try {
       const url = await getCustomerPortalUrl();
@@ -91,8 +91,8 @@ const PricingPage: React.FC = () => {
       <div className="max-w-6xl mx-auto px-4 text-center">
         <p className="text-sm text-indigo-600 font-semibold">Tarification simple</p>
         <h1 className="text-4xl font-bold text-gray-900 mb-4">Choisissez le plan adapté</h1>
-        <p className="text-gray-600 mb-6">Des plans transparents pour tester, scaler et industrialiser votre pipeline CV.</p>
-        <p className="text-xs text-gray-500 mb-10">Les pages /payment/success et /payment/cancel sont prêtes pour vos retours Stripe Checkout.</p>
+        <p className="text-gray-600 mb-6">Des plans prêts pour la mise en production de votre pipeline CV.</p>
+        <p className="text-xs text-gray-500 mb-10">Les retours Stripe Checkout redirigent vers /payment/success et /payment/cancel pour informer vos utilisateurs.</p>
 
         {error && (
           <div className="mb-6 p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg text-left max-w-3xl mx-auto">
