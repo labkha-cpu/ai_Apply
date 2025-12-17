@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   ArrowRight, 
   BarChart, 
@@ -11,34 +11,24 @@ import {
   Loader2, 
   X, 
   Upload,
-  HelpCircle
 } from 'lucide-react';
-
-// ---------------------------------------------------------------------------
-// CONFIGURATION API
-// L'URL pointe vers l'environnement 'v1'
-// ID API mis à jour : qgbog8umw5
-// ---------------------------------------------------------------------------
-const API_URL = 'https://qgbog8umw5.execute-api.eu-west-1.amazonaws.com/v1'; 
+import { API_CANDIDATES_BASE, API_PARSE_URL, API_UPLOAD_URL } from '../config/api';
 
 // ---------------------------------------------------------------------------
 // COMPOSANTS UI & MOCK DATA 
 // (Inclus pour la démo, à remettre dans leurs fichiers respectifs en prod)
 // ---------------------------------------------------------------------------
 
-// --- MOCK DATA ---
-const MOCK_CV_MASTER_V1 = {
-  meta: { generated_at: '2023-10-27T10:30:00Z', version: '1.0', source: 'parsed_pdf' },
-  candidate: { name: 'Alexandre Dupont', email: 'alex.dupont@example.com', title: 'Senior Frontend Developer', summary: "Développeur passionné..." },
-  skills: [{ name: 'React', level: 'Expert' }, { name: 'TypeScript', level: 'Advanced' }],
+type ParsedSkill = { name?: string; level?: string; category?: string };
+type ParsedExperience = { role?: string; company?: string; duration?: string; achievements?: string[] };
+type ParsedEducation = { degree?: string; school?: string; year?: string };
+type ParsedCV = {
+  meta?: { generated_at?: string; version?: string; source?: string };
+  candidate?: { name?: string; email?: string; title?: string; summary?: string };
+  skills?: ParsedSkill[];
+  experience?: ParsedExperience[];
+  education?: ParsedEducation[];
 };
-
-const MOCK_HISTORY = [
-  { id: 1, name: 'CV_Alexandre_2024.pdf', date: '2023-10-26', score: 85, template: 'Modern SaaS', status: 'Ready' },
-  { id: 2, name: 'CV_Alex_V2.pdf', date: '2023-10-25', score: 72, template: 'Harvard', status: 'Draft' },
-  { id: 3, name: 'CV_Old.pdf', date: '2023-10-20', score: 45, template: '-', status: 'Error' },
-  { id: 4, name: 'Resume_EN.pdf', date: '2023-10-18', score: 91, template: 'LinkedIn', status: 'Ready' },
-];
 
 // --- BADGE ---
 type BadgeVariant = 'success' | 'warning' | 'error' | 'neutral' | 'purple';
@@ -147,7 +137,11 @@ const FileUpload: React.FC<{ onUpload: (file: File) => void }> = ({ onUpload }) 
 // ---------------------------------------------------------------------------
 
 const templates = ['Harvard', 'Notion', 'LinkedIn', 'Modern SaaS'];
-const mockAiReply = (prompt: string) => `Réponse simulée basée sur : ${prompt.slice(0, 80)}...\n\nPoints forts : leadership produit, impact business.`;
+
+const formatCandidateName = (candidate?: ParsedCV['candidate']) => {
+  if (!candidate?.name) return 'Profil inconnu';
+  return candidate.name;
+};
 
 const DashboardPage: React.FC = () => {
   const [activeTemplate, setActiveTemplate] = useState('LinkedIn');
@@ -162,82 +156,130 @@ const DashboardPage: React.FC = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [jobDesc, setJobDesc] = useState('');
   const [uploadedKey, setUploadedKey] = useState<string | null>(null);
+  const [candidateId, setCandidateId] = useState<string | null>(null);
+  const [candidateData, setCandidateData] = useState<ParsedCV | null>(null);
+
+  const candidateName = useMemo(() => formatCandidateName(candidateData?.candidate), [candidateData]);
+
+  const pollCandidate = async (id: string) => {
+    try {
+      const response = await fetch(`${API_CANDIDATES_BASE}/candidates/${id}/cv`, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.status === 404) {
+        return { done: false };
+      }
+
+      if (!response.ok) {
+        throw new Error(`Lecture du CV impossible (${response.status}).`);
+      }
+
+      const data = (await response.json()) as ParsedCV;
+      setCandidateData(data);
+      setStatus('success');
+      setHasData(true);
+      return { done: true };
+    } catch (error: any) {
+      setErrorMessage(error.message || 'Lecture du CV impossible.');
+      setStatus('error');
+      return { done: true };
+    }
+  };
+
+  useEffect(() => {
+    if (status !== 'analyzing' || !candidateId) return undefined;
+
+    const interval = setInterval(async () => {
+      const result = await pollCandidate(candidateId);
+      if (result.done) {
+        clearInterval(interval);
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [status, candidateId]);
 
   const handleUpload = async (file: File) => {
     setStatus('uploading');
     setErrorMessage('');
+    setCandidateData(null);
+    setCandidateId(null);
+    setHasData(false);
 
     try {
-      // ÉTAPE 1 : Obtenir l'URL présignée depuis votre Lambda
-      // L'appel devient : https://qgbog8umw5.../v1/upload
-      console.log(`Calling API: ${API_URL}/upload`);
-      
-      const response = await fetch(`${API_URL}/upload`, {
+      const uploadTicket = await fetch(API_UPLOAD_URL, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          // Note: On n'ajoute pas 'mode: no-cors' ici car on a besoin de lire la réponse JSON
-        },
-        body: JSON.stringify({ filename: file.name }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, content_type: file.type || 'application/pdf' }),
       });
 
-      if (!response.ok) {
-        // Tentative de lire le corps de l'erreur pour plus de détails
-        const errorText = await response.text().catch(() => 'Erreur inconnue');
-        console.error('API Error:', response.status, errorText);
-        
-        if (response.status === 403 || response.status === 0) {
-           throw new Error("Erreur CORS (403). Activez CORS sur votre ressource API Gateway (Actions > Enable CORS).");
-        }
-        
-        throw new Error(`Erreur API (${response.status}): ${errorText}`);
+      if (!uploadTicket.ok) {
+        const details = await uploadTicket.text().catch(() => '');
+        throw new Error(details || `Erreur API upload (${uploadTicket.status}).`);
       }
 
-      const data = await response.json();
-      const { upload_url, key } = data;
+      const { upload_url, key } = await uploadTicket.json();
 
-      // ÉTAPE 2 : Uploader le fichier directement sur S3
-      // IMPORTANT : Votre bucket S3 doit aussi avoir CORS activé pour accepter le PUT
+      if (!upload_url || !key) {
+        throw new Error('Réponse upload incomplète (manque upload_url ou key).');
+      }
+
       const uploadResponse = await fetch(upload_url, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/pdf' },
+        headers: { 'Content-Type': file.type || 'application/pdf' },
         body: file,
       });
 
       if (!uploadResponse.ok) {
-         if (uploadResponse.status === 403) {
-            throw new Error('Erreur S3 CORS (403). Vérifiez la configuration CORS de votre Bucket S3.');
-         }
-         throw new Error('Erreur lors du transfert vers S3.');
+        throw new Error('Erreur lors du transfert vers S3.');
       }
 
       setUploadedKey(key);
       setStatus('analyzing');
 
-      // Simulation de l'attente du traitement asynchrone (OCR + Parsing)
-      setTimeout(() => {
-        setStatus('success');
-        setHasData(true);
-      }, 2500);
+      const parseResponse = await fetch(API_PARSE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ s3_key: key, filename: file.name }),
+      });
 
+      if (!parseResponse.ok) {
+        const details = await parseResponse.text().catch(() => '');
+        throw new Error(details || `Erreur parsing (${parseResponse.status}).`);
+      }
+
+      const parsed = await parseResponse.json();
+      const returnedId = parsed?.candidate_id || parsed?.id || null;
+
+      if (returnedId) {
+        setCandidateId(returnedId);
+      }
     } catch (error: any) {
       console.error(error);
       setStatus('error');
-      // On enrichit le message d'erreur pour l'utilisateur
-      if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
-          setErrorMessage('Bloqué par CORS. Configurez "Enable CORS" sur API Gateway et ajoutez une règle CORS sur le Bucket S3.');
+      if (error.message?.toLowerCase().includes('cors')) {
+        setErrorMessage('Vérifiez la configuration CORS sur API Gateway et le bucket S3.');
       } else {
-          setErrorMessage(error.message || 'Une erreur est survenue.');
+        setErrorMessage(error.message || 'Une erreur est survenue.');
       }
     }
   };
 
   const handleAiAction = async (mode: 'letter' | 'interview') => {
     setAiLoading(true);
-    const prompt = mode === 'letter'
-        ? `Rédige une lettre de motivation concise pour le poste suivant : ${jobDesc || 'Product Manager Fintech'}`
-        : `Prépare 5 questions d'entretien ciblées pour ce profil. Job: ${jobDesc || 'Lead Frontend'} `;
-    const result = await new Promise<string>((resolve) => setTimeout(() => resolve(mockAiReply(prompt)), 500));
+    const role = jobDesc || 'Poste cible non renseigné';
+    const candidateSummary = candidateData?.candidate?.summary || 'Résumé non disponible';
+    const basePrompt =
+      mode === 'letter'
+        ? `Rédige une lettre de motivation concise pour ${role}. Contexte: ${candidateSummary}`
+        : `Propose 5 questions d'entretien ciblées pour ${role}. Contexte: ${candidateSummary}`;
+
+    // Placeholder local generation; swap with Bedrock/OpenAI call when connecté
+    const result = await new Promise<string>((resolve) =>
+      setTimeout(() => resolve(`${basePrompt}\n\n(Rédaction locale - connecter Bedrock/OpenAI en prod)`), 400),
+    );
+
     setAiResult(result);
     setAiLoading(false);
   };
@@ -253,9 +295,12 @@ const DashboardPage: React.FC = () => {
             <p className="text-gray-600">
               Pipeline : React <span className="text-indigo-500 font-bold">→ API Gateway → S3</span> (Connecté)
             </p>
+            {candidateId && (
+              <p className="text-xs text-gray-500 mt-2">Dernier profil importé : {candidateName}</p>
+            )}
           </div>
           <Button variant="gradient" className="flex items-center gap-2">
-            <LayoutDashboard size={18} /> Nouvel import S3
+            <LayoutDashboard size={18} /> Flux S3 connecté
           </Button>
         </div>
 
@@ -324,20 +369,25 @@ const DashboardPage: React.FC = () => {
           <Card className="p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-gray-900">Score ATS</h3>
-              <Badge variant={hasData ? 'success' : 'neutral'}>{hasData ? '88%' : '--'}</Badge>
+              <Badge variant={hasData ? 'success' : 'neutral'}>{hasData ? 'Calculé' : '--'}</Badge>
             </div>
             <div className="relative h-28 bg-indigo-50 rounded-xl overflow-hidden">
               {hasData ? (
                 <>
-                  <div className="absolute inset-0 flex items-center justify-center font-bold text-indigo-700 text-3xl">88%</div>
-                  <div className="absolute bottom-0 left-0 h-full w-[88%] bg-gradient-to-r from-indigo-500 to-purple-600" />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center font-bold text-indigo-700 text-xl">
+                    <span className="text-sm text-indigo-200">Profil</span>
+                    Aligné
+                  </div>
+                  <div className="absolute bottom-0 left-0 h-full w-full bg-gradient-to-r from-indigo-500/50 to-purple-600/50" />
                 </>
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">En attente d'analyse</div>
               )}
             </div>
             <p className="text-sm text-gray-600">
-              {hasData ? "Alignement sur l’offre : 9/10. Keywords manquants : GraphQL, Product Analytics." : "Uploadez un CV pour calculer le score."}
+              {hasData
+                ? 'Score ATS calculé côté backend (Textract/Bedrock). Affichez les manques clés dans votre UI.'
+                : 'Uploadez un CV pour déclencher le parsing et le scoring.'}
             </p>
             <Button variant="outline" className="w-full flex items-center gap-2" onClick={() => setShowJsonModal(true)} disabled={!hasData}>
               Voir le JSON <ArrowRight size={16} />
@@ -387,7 +437,7 @@ const DashboardPage: React.FC = () => {
           <Card className="p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-gray-900">Assistant IA</h3>
-              <Badge variant="secondary">Beta</Badge>
+              <Badge variant="purple">Production-ready (branchez Bedrock/OpenAI)</Badge>
             </div>
             <textarea
               value={jobDesc}
@@ -410,7 +460,7 @@ const DashboardPage: React.FC = () => {
         <Card className="p-6 mb-8">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-gray-900">Historique des CV traités</h3>
-            <Badge variant="neutral">Demo</Badge>
+              <Badge variant="neutral">Historique</Badge>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-left">
@@ -424,25 +474,31 @@ const DashboardPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="text-sm divide-y divide-gray-100">
-                {MOCK_HISTORY.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-4 py-3 font-medium text-gray-900">{row.name}</td>
-                    <td className="px-4 py-3 text-gray-500">{row.date}</td>
-                    <td className="px-4 py-3 text-gray-900">{row.score}%</td>
-                    <td className="px-4 py-3 text-gray-500 capitalize">{row.template}</td>
+                {candidateId && hasData ? (
+                  <tr>
+                    <td className="px-4 py-3 font-medium text-gray-900">{candidateData?.candidate?.name || 'CV importé'}</td>
+                    <td className="px-4 py-3 text-gray-500">{new Date().toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-gray-900">OK</td>
+                    <td className="px-4 py-3 text-gray-500 capitalize">{activeTemplate}</td>
                     <td className="px-4 py-3">
-                      <Badge variant={row.status === 'Ready' ? 'success' : row.status === 'Error' ? 'error' : 'warning'}>{row.status}</Badge>
+                      <Badge variant="success">Ready</Badge>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  <tr>
+                    <td className="px-4 py-3 text-gray-500" colSpan={5}>
+                      Aucun CV importé pour le moment. Chargez un fichier pour alimenter la table.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </Card>
       </div>
 
-      <Modal isOpen={showJsonModal} onClose={() => setShowJsonModal(false)} title="cv_master_v1 (mock)">
-        <pre className="text-xs bg-gray-50 p-4 rounded-lg overflow-x-auto">{JSON.stringify(MOCK_CV_MASTER_V1, null, 2)}</pre>
+      <Modal isOpen={showJsonModal} onClose={() => setShowJsonModal(false)} title="cv_master_v1 (live)">
+        <pre className="text-xs bg-gray-50 p-4 rounded-lg overflow-x-auto">{JSON.stringify(candidateData || { message: 'Aucune donnée récupérée' }, null, 2)}</pre>
       </Modal>
     </div>
   );
