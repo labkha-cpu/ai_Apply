@@ -13,13 +13,7 @@ import {
   Upload,
   HelpCircle
 } from 'lucide-react';
-
-// ---------------------------------------------------------------------------
-// CONFIGURATION API
-// L'URL pointe vers l'environnement 'v1'
-// ID API mis à jour : qgbog8umw5
-// ---------------------------------------------------------------------------
-const API_URL = 'https://qgbog8umw5.execute-api.eu-west-1.amazonaws.com/v1'; 
+import { API_URL } from '../config/api';
 
 // ---------------------------------------------------------------------------
 // COMPOSANTS UI & MOCK DATA 
@@ -387,7 +381,7 @@ const DashboardPage: React.FC = () => {
           <Card className="p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-gray-900">Assistant IA</h3>
-              <Badge variant="secondary">Beta</Badge>
+              <Badge variant="purple">Beta</Badge>
             </div>
             <textarea
               value={jobDesc}
