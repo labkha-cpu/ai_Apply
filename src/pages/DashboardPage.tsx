@@ -13,7 +13,8 @@ import {
   Clock
 } from 'lucide-react';
 // On utilise API_PROFILE_URL pour le polling au lieu de API_PARSE_URL
-import { API_UPLOAD_URL, API_PROFILE_URL } from '../config/api';
+import { API_UPLOAD_URL, API_PROFILE_URL } from "../config/api";
+
 
 // --- TYPES ---
 type ParsedCV = {
@@ -166,6 +167,15 @@ const DashboardPage: React.FC = () => {
         // On interroge l'API Profile pour voir si les données sont prêtes
         const res = await fetch(`${API_PROFILE_URL}/${candidateId}`);
         
+        if (res.status === 502 || res.status === 500) {
+          const text = await res.text().catch(() => "");
+          stopPolling();
+          setStatus("error");
+          setErrorMessage(`GetProfile KO (${res.status}). Vérifie CloudWatch. ${text}`);
+          return;
+        }
+
+
         if (res.status === 200) {
           const data = await res.json();
           
