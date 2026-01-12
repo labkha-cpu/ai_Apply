@@ -1,25 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  CheckCircle, 
-  FileText, 
-  LayoutDashboard, 
-  AlertCircle, 
-  Loader2, 
-  X, 
+import {
+  CheckCircle,
+  FileText,
+  AlertCircle,
+  Loader2,
+  X,
   Upload,
-  ArrowRight,
-  BarChart,
-  Download,
   Clock
 } from 'lucide-react';
-// On utilise API_PROFILE_URL pour le polling au lieu de API_PARSE_URL
-import { API_UPLOAD_URL, API_PROFILE_URL } from "../config/api";
 
+import { API_UPLOAD_URL, API_PROFILE_URL, API_JSON_URL } from "../config/api";
 
-// --- TYPES ---
+// --------------------
+// TYPES
+// --------------------
 type ParsedCV = {
   candidate_id?: string;
-  status?: string; // Statut du traitement (COMPLETED, FAILED...)
+  status?: string; // COMPLETED, FAILED, PROCESSING...
+  error_message?: string;
+
   identity?: {
     full_name?: string;
     headline?: string;
@@ -41,24 +40,39 @@ type ParsedCV = {
     cv_hash?: string;
     parsed_at?: string;
   };
-  // Support pour les champs calculés
+
+  // Champs calculés possibles
   years_of_experience?: number;
   years_of_experience_inferred?: number;
+
+  // Certains backends renvoient raw_cv (merge utile)
+  raw_cv?: any;
 };
 
-// --- COMPOSANTS UI ---
-
+// --------------------
+// UI COMPONENTS
+// --------------------
 const Badge: React.FC<{ children: React.ReactNode; variant?: string }> = ({ children, variant }) => {
-  const bg = variant === 'purple' ? 'bg-purple-100 text-purple-800' : 
-             variant === 'success' ? 'bg-green-100 text-green-800' : 
-             variant === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800';
-  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${bg}`}>{children}</span>;
+  const bg =
+    variant === 'purple' ? 'bg-purple-100 text-purple-800' :
+    variant === 'success' ? 'bg-green-100 text-green-800' :
+    variant === 'error' ? 'bg-red-100 text-red-800' :
+    variant === 'warning' ? 'bg-amber-100 text-amber-800' :
+    'bg-gray-100 text-gray-800';
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${bg}`}>
+      {children}
+    </span>
+  );
 };
 
 const Button: React.FC<any> = ({ children, variant = 'primary', className = '', ...props }) => {
   const base = "inline-flex items-center justify-center font-medium transition-colors duration-200 rounded-lg disabled:opacity-50";
-  const styles = variant === 'primary' ? "bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2" : 
-                 "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 px-4 py-2";
+  const styles =
+    variant === 'primary'
+      ? "bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2"
+      : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 px-4 py-2";
   return <button className={`${base} ${styles} ${className}`} {...props}>{children}</button>;
 };
 
@@ -83,7 +97,7 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
 
 const FileUpload: React.FC<{ onUpload: (file: File) => void }> = ({ onUpload }) => {
   const [isDragging, setIsDragging] = useState(false);
-  
+
   const handleFile = (file: File) => onUpload(file);
 
   return (
@@ -91,48 +105,48 @@ const FileUpload: React.FC<{ onUpload: (file: File) => void }> = ({ onUpload }) 
       className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-colors duration-200 ${isDragging ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400'}`}
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={() => setIsDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setIsDragging(false); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+      }}
     >
-      <input type="file" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} accept=".pdf" />
+      <input
+        type="file"
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+        accept=".pdf"
+      />
       <div className="flex flex-col items-center gap-3 pointer-events-none">
         <div className="p-3 bg-indigo-100 rounded-full text-indigo-600"><Upload size={24} /></div>
         <p className="text-sm text-gray-600 font-medium">Glissez votre PDF ici</p>
-        <p className="text-xs text-gray-400 mt-2">Mode Asynchrone (Robuste)</p>
+        <p className="text-xs text-gray-400 mt-2">Mode Asynchrone (S3 Trigger + Polling)</p>
       </div>
     </div>
   );
 };
 
 // ---------------------------------------------------------------------------
-// PAGE DASHBOARD (MODE ASYNCHRONE / POLLING)
+// DASHBOARD PAGE
 // ---------------------------------------------------------------------------
-
 const DashboardPage: React.FC = () => {
   const [showJsonModal, setShowJsonModal] = useState(false);
-  
-  // États de l'upload et de l'analyse
+
   const [status, setStatus] = useState<'idle' | 'uploading' | 'analyzing' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
-  
+
   const [hasData, setHasData] = useState(false);
   const [candidateData, setCandidateData] = useState<ParsedCV | null>(null);
-  const [uploadedKey, setUploadedKey] = useState<string | null>(null);
-  
-  // États pour le feedback visuel du temps
-  const [pollingTime, setPollingTime] = useState(0);
-  
-  // Assistant IA
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiResult, setAiResult] = useState('');
-  const [jobDesc, setJobDesc] = useState('');
 
-  // Ref pour le timer de polling
+  const [uploadedKey, setUploadedKey] = useState<string | null>(null);
+  const [pollingTime, setPollingTime] = useState(0);
+
   const pollingInterval = useRef<number | null>(null);
   const timerInterval = useRef<number | null>(null);
 
-  // Nettoyage du timer si le composant est démonté
   useEffect(() => {
     return () => stopPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const stopPolling = () => {
@@ -149,24 +163,19 @@ const DashboardPage: React.FC = () => {
   const startPolling = (candidateId: string) => {
     stopPolling();
     setPollingTime(0);
-    console.log(`[POLLING] Démarrage de la surveillance pour ${candidateId}...`);
-    
-    // Timer visuel pour l'utilisateur
+
     timerInterval.current = window.setInterval(() => {
       setPollingTime(t => t + 1);
     }, 1000);
-    
+
     let attempts = 0;
-    // MODIFICATION: Augmentation du timeout à 10 minutes (300 tentatives * 2s)
-    // Si la Lambda AWS plante silencieusement (timeout backend), le front attendra 10min avant d'échouer.
-    const maxAttempts = 300; 
+    const maxAttempts = 300; // 10 minutes @ 2s
 
     pollingInterval.current = window.setInterval(async () => {
       attempts++;
       try {
-        // On interroge l'API Profile pour voir si les données sont prêtes
         const res = await fetch(`${API_PROFILE_URL}/${candidateId}`);
-        
+
         if (res.status === 502 || res.status === 500) {
           const text = await res.text().catch(() => "");
           stopPolling();
@@ -175,33 +184,25 @@ const DashboardPage: React.FC = () => {
           return;
         }
 
-
         if (res.status === 200) {
-          const data = await res.json();
-          
-          // Conditions de succès : statut COMPLETED ou présence de données brutes
+          const data: ParsedCV = await res.json();
+
           if (data.status === 'COMPLETED' || (data.raw_cv && data.identity)) {
-            console.log("[POLLING] Analyse terminée avec succès !", data);
             stopPolling();
-            
-            // On fusionne les données pour l'affichage
-            const finalData = { ...data, ...data.raw_cv };
+
+            // Merge raw_cv if present
+            const finalData = { ...(data as any), ...((data as any).raw_cv || {}) };
+
             setCandidateData(finalData);
             setHasData(true);
             setStatus('success');
-          } 
-          else if (data.status === 'FAILED') {
+          } else if (data.status === 'FAILED') {
             stopPolling();
             setStatus('error');
             setErrorMessage(data.error_message || "L'analyse a échoué côté serveur (voir logs CloudWatch).");
           }
-          else {
-            // Toujours en cours...
-            const attemptLog = `[POLLING] En cours... Tentative ${attempts}/${maxAttempts} (${attempts * 2}s)`;
-            if (attempts % 10 === 0) console.log(attemptLog);
-          }
         } else if (res.status === 404) {
-           if (attempts % 10 === 0) console.log(`[POLLING] Profil non trouvé (Lambda en cours d'exécution)...`);
+          // normal at first - item not in Dynamo yet
         }
 
         if (attempts >= maxAttempts) {
@@ -212,7 +213,7 @@ const DashboardPage: React.FC = () => {
       } catch (err) {
         console.error("Erreur réseau pendant le polling:", err);
       }
-    }, 2000); // Vérification toutes les 2 secondes
+    }, 2000);
   };
 
   const handleUpload = async (file: File) => {
@@ -220,56 +221,68 @@ const DashboardPage: React.FC = () => {
     setErrorMessage('');
     setCandidateData(null);
     setHasData(false);
+    setUploadedKey(null);
     stopPolling();
 
     try {
-      // 1. Demande d'URL présignée pour l'upload (Lambda PostCV)
-      console.log('1. Récupération du ticket d\'upload...');
+      // 1) POST /upload (Manage_CV API)
       const uploadTicketResponse = await fetch(API_UPLOAD_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: file.name }),
+        body: JSON.stringify({
+          filename: file.name,
+          content_type: file.type || 'application/pdf',
+          content_length: file.size,
+        }),
       });
 
-      if (!uploadTicketResponse.ok) throw new Error('Erreur API Upload: Vérifiez API Gateway URL');
-      
-      const { upload_url, bucket, key, candidate_id } = await uploadTicketResponse.json();
-      
-      if (!candidate_id) {
-        throw new Error("L'API Upload n'a pas renvoyé de candidate_id. Mettez à jour la Lambda PostCV.");
+      if (!uploadTicketResponse.ok) {
+        const txt = await uploadTicketResponse.text().catch(() => "");
+        throw new Error(`Erreur API Upload (${uploadTicketResponse.status}). ${txt}`);
       }
 
-      console.log('2. Upload vers S3...', { bucket, key, candidate_id });
+      const ticket = await uploadTicketResponse.json();
+      const upload_url = ticket.upload_url;
+      const candidate_id = ticket.candidate_id;
+      const key = ticket.key;
+      const signed_content_type = ticket.content_type || (file.type || 'application/pdf');
 
-      // 2. Upload S3 Direct
-      const s3Upload = await fetch(upload_url, {
+      if (!upload_url || !candidate_id || !key) {
+        throw new Error("Réponse PostCV invalide: upload_url / candidate_id / key manquants.");
+      }
+
+      // 2) PUT S3 presigned
+      const putRes = await fetch(upload_url, {
         method: 'PUT',
         body: file,
-        headers: { 'Content-Type': file.type || 'application/pdf' }
+        headers: { 'Content-Type': signed_content_type }
       });
 
-      if (!s3Upload.ok) throw new Error('Échec du transfert S3 (Problème CORS ?)');
-      
+      if (!putRes.ok) {
+        const hint = putRes.status === 403
+          ? " (403: mismatch Content-Type entre signature et PUT — assure-toi d'envoyer EXACTEMENT le même Content-Type)"
+          : "";
+        throw new Error(`Échec PUT S3 (${putRes.status})${hint}`);
+      }
+
       setUploadedKey(key);
-      
-      // 3. Passage en mode Polling (Plus d'appel direct à /parse)
-      // C'est le dépôt du fichier sur S3 qui déclenche la Lambda en arrière-plan
+
+      // 3) Polling on Profiles API
       setStatus('analyzing');
       startPolling(candidate_id);
 
     } catch (error: any) {
       console.error(error);
       setStatus('error');
-      setErrorMessage(error.message || 'Une erreur est survenue.');
+      setErrorMessage(error?.message || 'Une erreur est survenue.');
     }
   };
 
-  const handleAiAction = async (mode: 'letter' | 'interview') => {
-    setAiLoading(true);
-    setTimeout(() => {
-        setAiResult(`Contenu généré pour ${mode} (Simulation front-end pour la démo).`);
-        setAiLoading(false);
-    }, 1500);
+  const openJsonFromApi = () => {
+    const cid = candidateData?.candidate_id;
+    if (!cid) return;
+    // Profiles API: GET /candidates/{candidate_id}/json
+    window.open(`${API_JSON_URL}/${cid}/json`, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -286,7 +299,6 @@ const DashboardPage: React.FC = () => {
         </div>
 
         <div className="grid lg:grid-cols-3 gap-6 mb-8">
-          {/* Carte d'Upload */}
           <Card className="p-6 lg:col-span-2">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-900">Upload de CV</h2>
@@ -298,16 +310,15 @@ const DashboardPage: React.FC = () => {
                 {status === 'error' && 'Erreur'}
               </Badge>
             </div>
-            
+
             <FileUpload onUpload={handleUpload} />
-            
-            {/* Feedback Visuel */}
+
             <div className="mt-4">
               {status === 'analyzing' && (
                 <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100 animate-pulse">
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-indigo-700 font-medium flex items-center gap-2">
-                      <Loader2 size={16} className="animate-spin" /> 
+                      <Loader2 size={16} className="animate-spin" />
                       Analyse en arrière-plan...
                     </p>
                     <span className="text-xs font-mono text-indigo-600 bg-indigo-100 px-2 py-1 rounded flex items-center gap-1">
@@ -320,79 +331,60 @@ const DashboardPage: React.FC = () => {
                   </p>
                 </div>
               )}
+
               {status === 'error' && (
-                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p className="text-sm text-red-700 flex items-center gap-2 font-semibold">
-                       <AlertCircle size={16} /> Échec
-                    </p>
-                    <p className="text-xs text-red-600 mt-1">{errorMessage}</p>
-                 </div>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-700 flex items-center gap-2 font-semibold">
+                    <AlertCircle size={16} /> Échec
+                  </p>
+                  <p className="text-xs text-red-600 mt-1">{errorMessage}</p>
+                </div>
               )}
+
               {status === 'success' && (
                 <div className="flex flex-col gap-2">
                   <p className="text-sm text-green-600 flex items-center gap-2 font-medium">
                     <CheckCircle size={16} /> Analyse réussie en {pollingTime}s !
                   </p>
                   <p className="text-xs text-gray-500">ID: {candidateData?.candidate_id}</p>
+                  {uploadedKey && <p className="text-xs text-gray-400">S3: {uploadedKey}</p>}
+                  <div className="flex gap-2 mt-2">
+                    <Button variant="outline" className="flex-1" onClick={() => setShowJsonModal(true)}>
+                      Voir JSON (modal)
+                    </Button>
+                    <Button variant="outline" className="flex-1" onClick={openJsonFromApi} disabled={!candidateData?.candidate_id}>
+                      Ouvrir JSON (API)
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
           </Card>
 
-          {/* Carte Résultat Rapide */}
           <Card className="p-6 space-y-4">
             <h3 className="font-semibold text-gray-900">Résultat</h3>
             {hasData ? (
               <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div>
-                   <p className="text-xs text-gray-500">Nom détecté</p>
-                   <p className="font-bold text-lg">{candidateData?.identity?.full_name || 'Inconnu'}</p>
+                  <p className="text-xs text-gray-500">Nom détecté</p>
+                  <p className="font-bold text-lg">{candidateData?.identity?.full_name || 'Inconnu'}</p>
                 </div>
                 <div>
-                   <p className="text-xs text-gray-500">Titre</p>
-                   <p className="font-medium">{candidateData?.identity?.headline || 'Non spécifié'}</p>
+                  <p className="text-xs text-gray-500">Titre</p>
+                  <p className="font-medium">{candidateData?.identity?.headline || 'Non spécifié'}</p>
                 </div>
                 <div>
-                   <p className="text-xs text-gray-500">Expérience</p>
-                   <p className="font-medium text-indigo-600">
-                     {candidateData?.years_of_experience_inferred ?? candidateData?.years_of_experience ?? 0} ans
-                   </p>
+                  <p className="text-xs text-gray-500">Expérience</p>
+                  <p className="font-medium text-indigo-600">
+                    {candidateData?.years_of_experience_inferred ?? candidateData?.years_of_experience ?? 0} ans
+                  </p>
                 </div>
-                <Button variant="outline" className="w-full" onClick={() => setShowJsonModal(true)}>
-                  Voir le JSON complet
-                </Button>
               </div>
             ) : (
               <div className="text-center text-gray-400 py-8">
                 <FileText size={48} className="mx-auto mb-2 opacity-20" />
                 <p className="text-sm">En attente de données</p>
               </div>
-            )}
-          </Card>
-        </div>
-
-        {/* Section Assistant IA */}
-        <div className="grid lg:grid-cols-3 gap-6 mb-8">
-            <Card className="p-6 space-y-4 col-span-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900">Assistant IA</h3>
-              <Badge variant="purple">Démo Frontend</Badge>
-            </div>
-            <textarea
-              value={jobDesc}
-              onChange={(e) => setJobDesc(e.target.value)}
-              placeholder="Collez une description de poste pour générer une lettre de motivation..."
-              className="w-full border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              rows={3}
-            />
-            <div className="flex gap-3">
-              <Button className="flex-1" onClick={() => handleAiAction('letter')} disabled={aiLoading || !hasData}>Générer Lettre</Button>
-              <Button variant="secondary" className="flex-1" onClick={() => handleAiAction('interview')} disabled={aiLoading || !hasData}>Questions Entretien</Button>
-            </div>
-            {aiResult && (
-                <div className="bg-gray-50 border border-gray-100 rounded-lg p-3 text-sm min-h-[60px] whitespace-pre-line animate-in fade-in">
-                {aiResult}
-                </div>
             )}
           </Card>
         </div>
