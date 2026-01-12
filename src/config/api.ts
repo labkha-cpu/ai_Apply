@@ -1,33 +1,19 @@
-const getEnv = (key: string) =>
-  (typeof import.meta !== "undefined" ? import.meta.env?.[key] : undefined);
+// src/config/api.ts
 
-// Bases
-export const CV_API_BASE =
-  getEnv("VITE_CV_API_BASE") ||
-  getEnv("VITE_API_URL") ||
-  "https://qgbog8umw5.execute-api.eu-west-1.amazonaws.com/v1";
+function normalize(url: string) {
+  return (url || "").trim().replace(/\/+$/, "");
+}
 
-export const PROFILES_API_BASE =
-  getEnv("VITE_PROFILES_API_BASE") ||
-  getEnv("VITE_PROFILES_API_URL") ||
-  "https://27p0ilpk34.execute-api.eu-west-1.amazonaws.com/v1";
+export const MANAGE_CV_BASE = normalize(import.meta.env.VITE_MANAGE_CV_API_BASE_URL);
+export const PROFILES_BASE  = normalize(import.meta.env.VITE_PROFILES_API_BASE_URL);
 
-// Endpoints CV
-export const API_UPLOAD_URL =
-  getEnv("VITE_UPLOAD_URL") || `${CV_API_BASE}/upload`;
+// Compat: certains fichiers attendent "API_URL"
+export const API_URL = PROFILES_BASE || MANAGE_CV_BASE || "";
 
-export const API_PARSE_URL =
-  getEnv("VITE_PARSE_URL") || `${CV_API_BASE}/parse`;
+if (!MANAGE_CV_BASE) console.error("Missing VITE_MANAGE_CV_API_BASE_URL");
+if (!PROFILES_BASE) console.error("Missing VITE_PROFILES_API_BASE_URL");
 
-// Endpoints Profiles
-export const API_PROFILE_URL =
-  getEnv("VITE_PROFILE_URL") || `${PROFILES_API_BASE}/profile`;
-
-// Backward compatibility (anciens imports)
-export const API_URL = CV_API_BASE;
-export const PROFILES_API_URL = PROFILES_API_BASE;
-export const API_CANDIDATES_BASE = PROFILES_API_BASE;
-
-// Stripe
-export const STRIPE_PUBLISHABLE_KEY =
-  getEnv("VITE_STRIPE_PUBLISHABLE_KEY") || "";
+export const API_UPLOAD_URL  = `${MANAGE_CV_BASE}/upload`;
+export const API_PARSE_URL   = `${MANAGE_CV_BASE}/parse`;     // si encore utilisé
+export const API_PROFILE_URL = `${PROFILES_BASE}/profile`;
+export const API_JSON_URL    = `${PROFILES_BASE}/candidates`; // /{candidate_id}/json
