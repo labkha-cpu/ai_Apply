@@ -1,4 +1,4 @@
-import { API_PROFILE_BASE, API_ARTIFACTS_BASE, getStep2Endpoint } from "../config/api";
+import { API_URL } from '../config/api';
 
 export type PlanCode = 'starter' | 'pro';
 
