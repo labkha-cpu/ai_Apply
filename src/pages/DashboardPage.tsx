@@ -10,7 +10,13 @@ import {
 } from 'lucide-react';
 
 import { API_UPLOAD_URL } from "../config/api";
-import { getCandidateProfile, getArtifactUrl } from "../services/cvision";
+import { getCandidateProfile, getArtifactUrl, triggerStep2 } from "../services/cvision";
+import {
+  getStep2ErrorMessage,
+  resolveStep2Status,
+  startStep2Polling,
+  Step2Status,
+} from "../utils/step2";
 
 // --------------------
 // TYPES
@@ -23,6 +29,8 @@ type ParsedCV = {
   meta?: any; // <- on travaille sur ta structure (meta contient raw_cv + scores + contact)
   step1_json?: any;
   step2_error?: any;
+  step2_json?: any;
+  step2_status?: string;
 
   identity?: {
     full_name?: string;
@@ -115,6 +123,29 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
         <div className="p-6 overflow-y-auto">{children}</div>
       </div>
     </div>
+  );
+};
+
+const Step2StatusBadge: React.FC<{ status: Step2Status }> = ({ status }) => {
+  const labels: Record<Step2Status, string> = {
+    NOT_RUN: "Non généré",
+    QUEUED: "En file",
+    PROCESSING: "En cours",
+    COMPLETED: "Prêt",
+    FAILED: "Échec",
+  };
+  const variants: Record<Step2Status, string> = {
+    NOT_RUN: "bg-gray-100 text-gray-700",
+    QUEUED: "bg-amber-100 text-amber-800",
+    PROCESSING: "bg-indigo-100 text-indigo-800",
+    COMPLETED: "bg-emerald-100 text-emerald-800",
+    FAILED: "bg-rose-100 text-rose-800",
+  };
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${variants[status]}`}>
+      {labels[status]}
+    </span>
   );
 };
 
@@ -652,6 +683,88 @@ const AuditDashboard: React.FC<{ profile: ParsedCV; onOpenJson: () => void }> = 
   );
 };
 
+const Step2Section: React.FC<{
+  status: Step2Status;
+  errorMessage: string;
+  isGenerating: boolean;
+  elapsedSeconds: number;
+  onGenerate: () => void;
+  onDownloadPdf: () => void;
+  onDownloadJson: () => void;
+}> = ({ status, errorMessage, isGenerating, elapsedSeconds, onGenerate, onDownloadPdf, onDownloadJson }) => {
+  return (
+    <Card className="p-6">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-bold text-gray-900">Step2 — CV ATS</h2>
+            <Step2StatusBadge status={status} />
+          </div>
+          <p className="text-sm text-gray-500 mt-1">
+            Générez un CV optimisé ATS à partir de l'audit validé.
+          </p>
+        </div>
+        {status === "NOT_RUN" && (
+          <Button onClick={onGenerate} disabled={isGenerating}>
+            Générer le CV ATS
+          </Button>
+        )}
+        {status === "FAILED" && (
+          <Button onClick={onGenerate} disabled={isGenerating}>
+            Relancer la génération
+          </Button>
+        )}
+        {status === "COMPLETED" && (
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={onDownloadPdf}>
+              Télécharger PDF
+            </Button>
+            <Button variant="outline" onClick={onDownloadJson}>
+              Télécharger JSON
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {status === "QUEUED" && (
+        <div className="mt-4 flex items-center gap-3 text-sm text-amber-700">
+          <Loader2 size={16} className="animate-spin" />
+          Votre demande est en file d'attente.
+        </div>
+      )}
+
+      {status === "PROCESSING" && (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center gap-3 text-sm text-indigo-700">
+            <Loader2 size={16} className="animate-spin" />
+            Traitement en cours • {Math.floor(elapsedSeconds / 60)}m {elapsedSeconds % 60}s
+          </div>
+          <div className="h-2 w-full bg-indigo-100 rounded-full overflow-hidden">
+            <div className="h-full w-1/3 bg-indigo-500 animate-pulse" />
+          </div>
+        </div>
+      )}
+
+      {status === "FAILED" && (
+        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          <div className="flex items-center gap-2 font-semibold">
+            <AlertCircle size={16} /> Échec de génération
+          </div>
+          <p className="mt-1">{errorMessage || "Une erreur est survenue lors du traitement."}</p>
+        </div>
+      )}
+
+      {status === "COMPLETED" && (
+        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+          <div className="flex items-center gap-2 font-semibold">
+            <CheckCircle size={16} /> CV ATS prêt au téléchargement.
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+};
+
 // ---------------------------------------------------------------------------
 // DASHBOARD PAGE (full)
 // ---------------------------------------------------------------------------
@@ -668,13 +781,34 @@ const DashboardPage: React.FC = () => {
   const pollingInterval = useRef<number | null>(null);
   const timerInterval = useRef<number | null>(null);
 
+  const [step2Status, setStep2Status] = useState<Step2Status>("NOT_RUN");
+  const [step2ErrorMessage, setStep2ErrorMessage] = useState("");
+  const [step2Elapsed, setStep2Elapsed] = useState(0);
+  const [isStep2Generating, setIsStep2Generating] = useState(false);
+  const step2Timer = useRef<number | null>(null);
+  const stopStep2Polling = useRef<(() => void) | null>(null);
+
   // Optional debug modal
   const [showDebugModal, setShowDebugModal] = useState(false);
 
   useEffect(() => {
-    return () => stopPolling();
+    return () => {
+      stopPolling();
+      stopStep2Timers();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!candidateData) {
+      setStep2Status("NOT_RUN");
+      setStep2ErrorMessage("");
+      return;
+    }
+    const resolved = resolveStep2Status(candidateData);
+    setStep2Status(resolved);
+    setStep2ErrorMessage(resolved === "FAILED" ? getStep2ErrorMessage(candidateData) : "");
+  }, [candidateData]);
 
   const stopPolling = () => {
     if (pollingInterval.current) {
@@ -684,6 +818,17 @@ const DashboardPage: React.FC = () => {
     if (timerInterval.current) {
       window.clearInterval(timerInterval.current);
       timerInterval.current = null;
+    }
+  };
+
+  const stopStep2Timers = () => {
+    if (step2Timer.current) {
+      window.clearInterval(step2Timer.current);
+      step2Timer.current = null;
+    }
+    if (stopStep2Polling.current) {
+      stopStep2Polling.current();
+      stopStep2Polling.current = null;
     }
   };
 
@@ -768,6 +913,11 @@ const DashboardPage: React.FC = () => {
     setHasData(false);
     setUploadedKey(null);
     stopPolling();
+    stopStep2Timers();
+    setStep2Status("NOT_RUN");
+    setStep2ErrorMessage("");
+    setStep2Elapsed(0);
+    setIsStep2Generating(false);
 
     try {
       // 1) POST /upload (Manage_CV API)
@@ -833,6 +983,95 @@ const DashboardPage: React.FC = () => {
       console.error(e);
       setStatus("error");
       setErrorMessage(e?.message || "Impossible d'ouvrir l'artefact step1_json");
+    }
+  };
+
+  const mergeCandidateData = (nextProfile: ParsedCV) => {
+    setCandidateData((prev) => {
+      const prevData = prev || {};
+      return {
+        ...prevData,
+        ...nextProfile,
+        candidate_id: nextProfile.candidate_id || prevData.candidate_id,
+        meta: nextProfile.meta || prevData.meta,
+        step1_json: prevData.step1_json || nextProfile.step1_json,
+        step2_json: nextProfile.step2_json || prevData.step2_json,
+        step2_error: nextProfile.step2_error || prevData.step2_error,
+      };
+    });
+  };
+
+  const handleGenerateStep2 = async () => {
+    const cid = candidateData?.candidate_id;
+    if (!cid || isStep2Generating) return;
+    setStep2ErrorMessage("");
+    setIsStep2Generating(true);
+    setStep2Status("QUEUED");
+    setStep2Elapsed(0);
+
+    stopStep2Timers();
+    step2Timer.current = window.setInterval(() => {
+      setStep2Elapsed((t) => t + 1);
+    }, 1000);
+
+    try {
+      await triggerStep2(cid);
+    } catch (e: any) {
+      setIsStep2Generating(false);
+      stopStep2Timers();
+      setStep2Status("FAILED");
+      setStep2ErrorMessage(e?.message || "Impossible de lancer la génération Step2.");
+      return;
+    }
+
+    stopStep2Polling.current = startStep2Polling({
+      candidateId: cid,
+      getProfile: (id) => getCandidateProfile(id, "step2"),
+      onUpdate: (profile, status) => {
+        mergeCandidateData(profile as ParsedCV);
+        setStep2Status(status);
+        if (status === "FAILED") {
+          setStep2ErrorMessage(getStep2ErrorMessage(profile));
+        }
+      },
+      onDone: (profile, status) => {
+        mergeCandidateData(profile as ParsedCV);
+        setStep2Status(status);
+        setIsStep2Generating(false);
+        if (status === "FAILED") {
+          setStep2ErrorMessage(getStep2ErrorMessage(profile));
+        }
+        stopStep2Timers();
+      },
+      onError: (error) => {
+        console.error("Erreur polling Step2:", error);
+      },
+    });
+  };
+
+  const handleDownloadStep2Pdf = async () => {
+    const cid = candidateData?.candidate_id;
+    if (!cid) return;
+    try {
+      const r = await getArtifactUrl(cid, "step4_pdf");
+      window.open(r.url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      console.error(e);
+      setStep2ErrorMessage(e?.message || "Impossible de télécharger le PDF.");
+      setStep2Status("FAILED");
+    }
+  };
+
+  const handleDownloadStep2Json = async () => {
+    const cid = candidateData?.candidate_id;
+    if (!cid) return;
+    try {
+      const r = await getArtifactUrl(cid, "step2_cv_master");
+      window.open(r.url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      console.error(e);
+      setStep2ErrorMessage(e?.message || "Impossible de télécharger le JSON.");
+      setStep2Status("FAILED");
     }
   };
 
@@ -959,6 +1198,20 @@ const DashboardPage: React.FC = () => {
         {hasData && candidateData && (
           <div className="mt-2">
             <AuditDashboard profile={candidateData} onOpenJson={openStep1Artifact} />
+          </div>
+        )}
+
+        {hasData && candidateData && (
+          <div className="mt-6">
+            <Step2Section
+              status={step2Status}
+              errorMessage={step2ErrorMessage}
+              isGenerating={isStep2Generating}
+              elapsedSeconds={step2Elapsed}
+              onGenerate={handleGenerateStep2}
+              onDownloadPdf={handleDownloadStep2Pdf}
+              onDownloadJson={handleDownloadStep2Json}
+            />
           </div>
         )}
       </div>
