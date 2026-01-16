@@ -1,53 +1,31 @@
-import { API_PROFILE_BASE, API_ARTIFACTS_BASE, getStep2Endpoint } from "../config/api";
+// src/services/payments.ts
+// -----------------------------------------------------------------------------
+// Billing integration (STUB)
+// -----------------------------------------------------------------------------
+// The current dashboard paywall uses a simple localStorage toggle to validate UX.
+// This file exists to keep the Pricing page compiling until Stripe is wired.
+//
+// Replace these stubs with real API calls when your billing backend exists.
 
-export type PlanCode = 'starter' | 'pro';
+export type PlanCode = "starter" | "pro";
 
 export interface CheckoutSessionResponse {
   url: string;
   sessionId?: string;
 }
 
-const handleError = async (response: Response): Promise<never> => {
-  const details = await response.text().catch(() => '');
-  const message = details || `Erreur API (${response.status})`;
-  throw new Error(message);
-};
+function notImplemented(): never {
+  throw new Error(
+    "Billing backend not implemented yet. Wire Stripe (create-checkout-session / customer-portal) then update src/services/payments.ts."
+  );
+}
 
-export const createCheckoutSession = async (plan: PlanCode): Promise<CheckoutSessionResponse> => {
-  const response = await fetch(`${API_URL}/billing/create-checkout-session`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ plan }),
-  });
+export async function createCheckoutSession(_plan: PlanCode): Promise<CheckoutSessionResponse> {
+  // If you want a quick dev shortcut, you can return a fake URL:
+  // return { url: "#" };
+  return notImplemented();
+}
 
-  if (!response.ok) {
-    return handleError(response);
-  }
-
-  const data = (await response.json()) as CheckoutSessionResponse;
-
-  if (!data.url) {
-    throw new Error("Réponse Stripe invalide : l'URL de paiement est manquante.");
-  }
-
-  return data;
-};
-
-export const getCustomerPortalUrl = async (): Promise<string> => {
-  const response = await fetch(`${API_URL}/billing/customer-portal`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  if (!response.ok) {
-    return handleError(response);
-  }
-
-  const data = (await response.json()) as { url?: string };
-
-  if (!data.url) {
-    throw new Error("Réponse Stripe invalide : portail client manquant.");
-  }
-
-  return data.url;
-};
+export async function getCustomerPortalUrl(): Promise<string> {
+  return notImplemented();
+}

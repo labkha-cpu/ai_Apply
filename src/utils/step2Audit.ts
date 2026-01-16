@@ -2,6 +2,11 @@
 
 export type Level = "good" | "warn" | "bad" | "info";
 
+function hasNonEmptyObject(v: any): boolean {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  return Object.keys(v).length > 0;
+}
+
 export type AuditRow = {
   field: string;
   step1: string;
