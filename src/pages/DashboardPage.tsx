@@ -1,1181 +1,885 @@
-// src/pages/DashboardPage.tsx
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { CheckCircle, FileText, AlertCircle, Loader2, X, Upload, Clock } from "lucide-react";
-// src/pages/DashboardPage.tsx
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { CheckCircle, FileText, AlertCircle, Loader2, X, Upload, Clock } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  Crown,
+  FileText,
+  Loader2,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+  X,
+} from "lucide-react";
 
 import { API_UPLOAD_URL } from "../config/api";
-import { getCandidateProfile, getArtifactUrl, triggerStep2 } from "../services/cvision";
-import { getStep2ErrorMessage, resolveStep2Status, startStep2Polling, Step2Status } from "../utils/step2";
+import { getArtifactUrl, getCandidateProfile, triggerStep2 } from "../services/cvision";
 import Step2AuditTable from "../components/Step2AuditTable";
-import { computeAudit, safeText, hasText, clamp, Level } from "../utils/step2Audit";
+import { getStep2ErrorMessage, resolveStep2Status, startStep2Polling, Step2Status } from "../utils/step2";
+import { computeAudit, clamp, hasText, safeText } from "../utils/step2Audit";
 
-// --------------------
-// TYPES
-// --------------------
-type ParsedCV = {
+// -----------------------------------------------------------------------------
+// Types
+// -----------------------------------------------------------------------------
+
+type PageStatus = "idle" | "uploading" | "analyzing" | "ready" | "error";
+
+type CandidateProfile = {
   candidate_id?: string;
-  status?: string; // COMPLETED, FAILED, PROCESSING...
+  status?: string;
   error_message?: string;
-
-  meta?: any;
   meta?: any;
   step1_json?: any;
-
-  // Step2 fields
+  step2_status?: string;
   step2_error?: any;
   step2_json?: any;
-  step2_status?: string;
   cv_master_s3_key?: string | null;
-  step2_meta?: {
-    completed_at?: string;
-    duration_ms?: number;
-    model?: string;
-    output_key?: string;
-    prompt_chars?: number;
-  };
-
-  raw_cv?: any;
-  [k: string]: any;
   [k: string]: any;
 };
 
-// --------------------
-// UI COMPONENTS
-// --------------------
-const Badge: React.FC<{ children: React.ReactNode; variant?: string }> = ({ children, variant }) => {
-  const bg =
-    variant === "purple"
-      ? "bg-purple-100 text-purple-800"
-      : variant === "success"
-      ? "bg-green-100 text-green-800"
-      : variant === "error"
-      ? "bg-red-100 text-red-800"
-      : variant === "warning"
-      ? "bg-amber-100 text-amber-800"
-      : "bg-gray-100 text-gray-800";
-    variant === "purple"
-      ? "bg-purple-100 text-purple-800"
-      : variant === "success"
-      ? "bg-green-100 text-green-800"
-      : variant === "error"
-      ? "bg-red-100 text-red-800"
-      : variant === "warning"
-      ? "bg-amber-100 text-amber-800"
-      : "bg-gray-100 text-gray-800";
+// -----------------------------------------------------------------------------
+// Small UI helpers
+// -----------------------------------------------------------------------------
 
-  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${bg}`}>{children}</span>;
-  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${bg}`}>{children}</span>;
-};
-
-const Button: React.FC<any> = ({ children, variant = "primary", className = "", ...props }) => {
-  const base =
-    "inline-flex items-center justify-center font-medium transition-colors duration-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed";
-const Button: React.FC<any> = ({ children, variant = "primary", className = "", ...props }) => {
-  const base =
-    "inline-flex items-center justify-center font-medium transition-colors duration-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed";
-  const styles =
-    variant === "primary"
-    variant === "primary"
-      ? "bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2"
-      : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 px-4 py-2";
-  return (
-    <button className={`${base} ${styles} ${className}`} {...props}>
-      {children}
-    </button>
-  );
-  return (
-    <button className={`${base} ${styles} ${className}`} {...props}>
-      {children}
-    </button>
-  );
-};
-
-const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = "" }) => (
 const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = "" }) => (
   <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden ${className}`}>{children}</div>
 );
 
-const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({
-  isOpen,
-  onClose,
-  title,
-  children,
-}) => {
-const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({
-  isOpen,
-  onClose,
-  title,
-  children,
-}) => {
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
-        <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-          <h3 className="text-xl font-bold text-gray-900">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X size={24} />
-          </button>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X size={24} />
-          </button>
-        </div>
-        <div className="p-6 overflow-y-auto">{children}</div>
-      </div>
-    </div>
-  );
-};
-
-const Step2StatusBadge: React.FC<{ status: Step2Status }> = ({ status }) => {
-  const labels: Record<Step2Status, string> = {
-    NOT_RUN: "Non généré",
-    QUEUED: "En file",
-    PROCESSING: "En cours",
-    COMPLETED: "Prêt",
-    FAILED: "Échec",
-  };
-  const variants: Record<Step2Status, string> = {
-    NOT_RUN: "bg-gray-100 text-gray-700",
-    QUEUED: "bg-amber-100 text-amber-800",
-    PROCESSING: "bg-indigo-100 text-indigo-800",
-    COMPLETED: "bg-emerald-100 text-emerald-800",
-    FAILED: "bg-rose-100 text-rose-800",
-  };
-
-  return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${variants[status]}`}>
-      {labels[status]}
-    </span>
-  );
-};
-
-const FileUpload: React.FC<{ onUpload: (file: File) => void }> = ({ onUpload }) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const handleFile = (file: File) => onUpload(file);
-
-  return (
-    <div
-      className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-colors duration-200 ${
-        isDragging ? "border-indigo-500 bg-indigo-50" : "border-gray-300 hover:border-indigo-400"
-      }`}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setIsDragging(true);
-      }}
-      className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-colors duration-200 ${
-        isDragging ? "border-indigo-500 bg-indigo-50" : "border-gray-300 hover:border-indigo-400"
-      }`}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setIsDragging(true);
-      }}
-      onDragLeave={() => setIsDragging(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setIsDragging(false);
-        if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-      }}
-    >
-      <input
-        type="file"
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-        onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-        accept=".pdf"
-      />
-      <div className="flex flex-col items-center gap-3 pointer-events-none">
-        <div className="p-3 bg-indigo-100 rounded-full text-indigo-600">
-          <Upload size={24} />
-        </div>
-        <div className="p-3 bg-indigo-100 rounded-full text-indigo-600">
-          <Upload size={24} />
-        </div>
-        <p className="text-sm text-gray-600 font-medium">Glissez votre PDF ici</p>
-        <p className="text-xs text-gray-400 mt-2">Mode Asynchrone (S3 Trigger + Polling)</p>
-      </div>
-    </div>
-  );
-};
-
-// --------------------
-// Audit UI
-// Audit UI
-// --------------------
-const Pill: React.FC<{ level: Level; children: React.ReactNode }> = ({ level, children }) => {
+const Pill: React.FC<{ tone: "good" | "warn" | "bad" | "info"; children: React.ReactNode }> = ({ tone, children }) => {
   const styles =
-    level === "good"
+    tone === "good"
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-      : level === "warn"
+      : tone === "warn"
       ? "bg-amber-50 text-amber-700 border-amber-200"
-      : level === "bad"
-      ? "bg-rose-50 text-rose-700 border-rose-200"
-      : "bg-slate-50 text-slate-700 border-slate-200";
-    level === "good"
-      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-      : level === "warn"
-      ? "bg-amber-50 text-amber-700 border-amber-200"
-      : level === "bad"
+      : tone === "bad"
       ? "bg-rose-50 text-rose-700 border-rose-200"
       : "bg-slate-50 text-slate-700 border-slate-200";
 
   return <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${styles}`}>{children}</span>;
 };
 
-const ScoreCard: React.FC<{ title: string; score: number | null; subtitle?: string }> = ({ title, score, subtitle }) => {
-  const s = score === null ? null : clamp(Math.round(score), 0, 100);
-  const level: Level = s === null ? "info" : s >= 70 ? "good" : s >= 50 ? "warn" : "bad";
-  const level: Level = s === null ? "info" : s >= 70 ? "good" : s >= 50 ? "warn" : "bad";
-  const barColor =
-    level === "good" ? "bg-emerald-500" : level === "warn" ? "bg-amber-500" : level === "bad" ? "bg-rose-500" : "bg-slate-300";
-    level === "good" ? "bg-emerald-500" : level === "warn" ? "bg-amber-500" : level === "bad" ? "bg-rose-500" : "bg-slate-300";
+const Button: React.FC<{
+  children: React.ReactNode;
+  variant?: "primary" | "outline";
+  className?: string;
+  disabled?: boolean;
+  onClick?: () => void;
+  type?: "button" | "submit";
+}> = ({ children, variant = "primary", className = "", disabled, onClick, type = "button" }) => {
+  const base =
+    "inline-flex items-center justify-center gap-2 font-semibold transition-colors duration-200 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed";
+  const styles =
+    variant === "primary"
+      ? "bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2"
+      : "border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 px-4 py-2";
 
   return (
-    <Card className="p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-gray-900">{title}</div>
-          {subtitle && <div className="text-xs text-gray-500 mt-0.5">{subtitle}</div>}
-        </div>
-        <Pill level={level}>{s === null ? "—" : `${s}/100`}</Pill>
-        <Pill level={level}>{s === null ? "—" : `${s}/100`}</Pill>
-      </div>
-
-      <div className="mt-4 h-2 w-full rounded-full bg-gray-100 overflow-hidden">
-        <div className={`h-full ${barColor}`} style={{ width: `${s === null ? 0 : s}%` }} />
-      </div>
-    </Card>
+    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${styles} ${className}`}>
+      {children}
+    </button>
   );
 };
 
-const AuditDashboard: React.FC<{ profile: ParsedCV; onOpenJson: () => void }> = ({ profile, onOpenJson }) => {
-  const a = useMemo(() => computeAudit(profile), [profile]);
-  const step2Error = (profile as any)?.step2_error || null;
-
-  // ✅ hard guards (no crash)
-  const positives = Array.isArray((a as any)?.positives) ? (a as any).positives : [];
-  const improvements = Array.isArray((a as any)?.improvements) ? (a as any).improvements : [];
-  const metrics = Array.isArray((a as any)?.metrics) ? (a as any).metrics : [];
-
-  // ✅ hard guards (no crash)
-  const positives = Array.isArray((a as any)?.positives) ? (a as any).positives : [];
-  const improvements = Array.isArray((a as any)?.improvements) ? (a as any).improvements : [];
-  const metrics = Array.isArray((a as any)?.metrics) ? (a as any).metrics : [];
-
+const Modal: React.FC<{
+  isOpen: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}> = ({ isOpen, title, onClose, children }) => {
+  if (!isOpen) return null;
   return (
-    <div className="space-y-6">
-      <Card className="p-6">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">{safeText((a as any)?.fullName, "Candidat")}</h2>
-              <p className="text-gray-600">{safeText((a as any)?.headline, "Titre non renseigné")}</p>
-              <h2 className="text-2xl font-bold text-gray-900">{safeText((a as any)?.fullName, "Candidat")}</h2>
-              <p className="text-gray-600">{safeText((a as any)?.headline, "Titre non renseigné")}</p>
-              <p className="text-sm text-gray-500 mt-1">
-                {safeText((a as any)?.location, "Localisation non renseignée")}
-                {hasText((a as any)?.email) ? ` • ${(a as any).email}` : ""}
-                {hasText((a as any)?.phone) ? ` • ${(a as any).phone}` : ""}
-                {safeText((a as any)?.location, "Localisation non renseignée")}
-                {hasText((a as any)?.email) ? ` • ${(a as any).email}` : ""}
-                {hasText((a as any)?.phone) ? ` • ${(a as any).phone}` : ""}
-              </p>
-            </div>
-
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={onOpenJson}>
-                Voir artefact Step1 (JSON)
-              </Button>
-            </div>
-          </div>
-
-          {step2Error && (
-            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
-              <div className="flex items-center gap-2 text-rose-700 font-semibold">
-                <AlertCircle size={16} /> Step2 indisponible
-              </div>
-              <div className="text-sm text-rose-700 mt-1">{safeText(step2Error?.message, "Erreur Step2")}</div>
-              <pre className="mt-2 whitespace-pre-wrap text-xs text-rose-800/90 bg-white/60 border border-rose-200 rounded-lg p-3">
-                {safeText(step2Error?.details, "—")}
-              </pre>
-            </div>
-          )}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
+        <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+          <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700" aria-label="Fermer">
+            <X size={22} />
+          </button>
         </div>
-      </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <ScoreCard title="Qualité globale" score={(a as any)?.globalScore ?? null} subtitle="Complétude + skills + expériences + ATS" />
-        <ScoreCard title="ATS interne" score={(a as any)?.atsInternal ?? null} subtitle="Lisibilité ATS + mots-clés" />
-        <ScoreCard title="ATS modèle" score={(a as any)?.atsModel ?? null} subtitle="Pertinence modèle" />
-        <ScoreCard title="Qualité globale" score={(a as any)?.globalScore ?? null} subtitle="Complétude + skills + expériences + ATS" />
-        <ScoreCard title="ATS interne" score={(a as any)?.atsInternal ?? null} subtitle="Lisibilité ATS + mots-clés" />
-        <ScoreCard title="ATS modèle" score={(a as any)?.atsModel ?? null} subtitle="Pertinence modèle" />
+        <div className="p-6">{children}</div>
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-gray-900">Points positifs</h3>
-            <Pill level="good">À conserver</Pill>
-          </div>
-          <ul className="mt-3 list-disc pl-5 space-y-1 text-sm text-gray-700">
-            {(positives?.length ?? 0) === 0 ? <li>Aucun point fort détecté (profil incomplet).</li> : null}
-            {(positives ?? []).map((p: any, i: number) => (
-            {(positives?.length ?? 0) === 0 ? <li>Aucun point fort détecté (profil incomplet).</li> : null}
-            {(positives ?? []).map((p: any, i: number) => (
-              <li key={i}>
-                <span className="font-semibold">{p.label}</span> — {p.value}
-              </li>
-            ))}
-          </ul>
-        </Card>
-
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-gray-900">Améliorations prioritaires</h3>
-            <Pill level="warn">Actionnable</Pill>
-          </div>
-          <ul className="mt-3 list-disc pl-5 space-y-1 text-sm text-gray-700">
-            {(improvements?.length ?? 0) === 0 ? <li>Rien de critique détecté.</li> : null}
-            {(improvements ?? []).map((p: any, i: number) => (
-            {(improvements?.length ?? 0) === 0 ? <li>Rien de critique détecté.</li> : null}
-            {(improvements ?? []).map((p: any, i: number) => (
-              <li key={i}>
-                <span className="font-semibold">{p.label}</span> — {p.recommendation}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      </div>
-
-      {/* Table KPI */}
-      {/* Table KPI */}
-      <Card className="p-0">
-        <div className="p-6 border-b border-gray-100">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-gray-900">Audit qualité (tableau)</h3>
-              <p className="text-xs text-gray-500 mt-1">Vert = OK • Orange = amélioration • Rouge = manquant</p>
-            </div>
-            <div className="flex gap-2">
-              <Pill level="good">OK</Pill>
-              <Pill level="warn">À améliorer</Pill>
-              <Pill level="bad">Manquant</Pill>
-            </div>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left">
-            <thead className="bg-gray-50 text-xs text-gray-500">
-              <tr>
-                <th className="px-6 py-3">Critère</th>
-                <th className="px-6 py-3">Statut</th>
-                <th className="px-6 py-3">Valeur</th>
-                <th className="px-6 py-3">Recommandation</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
-              {(metrics ?? []).map((m: any, idx: number) => (
-              {(metrics ?? []).map((m: any, idx: number) => (
-                <tr key={idx} className="border-t">
-                  <td className="px-6 py-4 font-semibold text-gray-900">{m.label}</td>
-                  <td className="px-6 py-4">
-                    <Pill level={m.level}>
-                      {m.level === "good" ? "OK" : m.level === "warn" ? "À améliorer" : m.level === "bad" ? "Manquant" : "Info"}
-                      {m.level === "good" ? "OK" : m.level === "warn" ? "À améliorer" : m.level === "bad" ? "Manquant" : "Info"}
-                    </Pill>
-                  </td>
-                  <td className="px-6 py-4 text-gray-700">{m.value}</td>
-                  <td className="px-6 py-4 text-gray-600">{m.recommendation}</td>
-                </tr>
-              ))}
-              {(metrics?.length ?? 0) === 0 ? (
-                <tr className="border-t">
-                  <td className="px-6 py-4 text-gray-500" colSpan={4}>
-                    Aucun KPI disponible (profil incomplet).
-                  </td>
-                </tr>
-              ) : null}
-              {(metrics?.length ?? 0) === 0 ? (
-                <tr className="border-t">
-                  <td className="px-6 py-4 text-gray-500" colSpan={4}>
-                    Aucun KPI disponible (profil incomplet).
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </Card>
     </div>
   );
 };
 
-const Step2Section: React.FC<{
-  status: Step2Status;
-  errorMessage: string;
-  isGenerating: boolean;
-  elapsedSeconds: number;
-  step1Completed: boolean;
-  onGenerate: () => void;
-  onDownloadPdf: () => void;
-  onDownloadJson: () => void;
-}> = ({ status, errorMessage, isGenerating, elapsedSeconds, step1Completed, onGenerate, onDownloadPdf, onDownloadJson }) => {
-  return (
-    <Card className="p-6">
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl font-bold text-gray-900">Step2 — CV ATS</h2>
-            <Step2StatusBadge status={status} />
-          </div>
-          <p className="text-sm text-gray-500 mt-1">Générez un CV optimisé ATS à partir du parsing Step1.</p>
-        </div>
+function upper(v: any) {
+  return String(v ?? "").trim().toUpperCase();
+}
 
-        {(status === "NOT_RUN" || status === "FAILED") && (
-          <Button onClick={onGenerate} disabled={isGenerating || !step1Completed}>
-            {status === "FAILED" ? "Relancer la génération" : "Générer le CV ATS"}
-          </Button>
-        )}
+function getStep1Status(profile: CandidateProfile | null): string {
+  const raw = profile?.meta?.status ?? profile?.status;
+  return upper(raw);
+}
 
-        {status === "COMPLETED" && (
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={onDownloadPdf}>
-              Télécharger PDF
-            </Button>
-            <Button variant="outline" onClick={onDownloadJson}>
-              Télécharger JSON
-            </Button>
-          </div>
-        )}
-      </div>
+function computeVerdict(globalScore: number | null) {
+  if (globalScore === null) return { label: "Analyse incomplète", tone: "info" as const, emoji: "…" };
+  if (globalScore >= 75) return { label: "Bon, mais perfectible", tone: "good" as const, emoji: "✅" };
+  if (globalScore >= 55) return { label: "Correct, mais pas assez vendeur", tone: "warn" as const, emoji: "⚠️" };
+  return { label: "Bloquant pour les ATS", tone: "bad" as const, emoji: "❌" };
+}
 
-      {!step1Completed && (
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          Step2 est disponible uniquement quand Step1 est <b>COMPLETED</b>.
-        </div>
-      )}
+function computeGlobalScore(profile: CandidateProfile | null): number | null {
+  if (!profile) return null;
+  const meta = profile.meta || {};
+  const s1 = profile.step1_json || {};
+  const identity = s1.identity || {};
 
-      {status === "QUEUED" && (
-        <div className="mt-4 flex items-center gap-3 text-sm text-amber-700">
-          <Loader2 size={16} className="animate-spin" />
-          Votre demande est en file d'attente.
-        </div>
-      )}
+  // Simple, stable scoring (no magic): completeness + ATS internal if present.
+  const parts: Array<{ ok: boolean; w: number }> = [
+    { ok: hasText(identity?.full_name) || hasText(meta?.full_name), w: 10 },
+    { ok: hasText(identity?.headline) || hasText(meta?.headline), w: 10 },
+    { ok: Array.isArray(identity?.emails) && identity.emails.length > 0, w: 10 },
+    { ok: Array.isArray(identity?.phones) && identity.phones.length > 0, w: 8 },
+    { ok: hasText(identity?.location) || hasText(meta?.location), w: 7 },
+    { ok: Array.isArray(s1?.experiences) && s1.experiences.length > 0, w: 15 },
+    { ok: Array.isArray(s1?.education) && s1.education.length > 0, w: 8 },
+    { ok: !!(s1?.summary?.profile_summary && String(s1.summary.profile_summary).trim().length > 50), w: 12 },
+    { ok: Array.isArray(s1?.skills?.hard_skills) && s1.skills.hard_skills.length >= 8, w: 10 },
+  ];
 
-      {status === "PROCESSING" && (
-        <div className="mt-4 space-y-3">
-          <div className="flex items-center gap-3 text-sm text-indigo-700">
-            <Loader2 size={16} className="animate-spin" />
-            Traitement en cours • {Math.floor(elapsedSeconds / 60)}m {elapsedSeconds % 60}s
-          </div>
-          <div className="h-2 w-full bg-indigo-100 rounded-full overflow-hidden">
-            <div className="h-full w-1/3 bg-indigo-500 animate-pulse" />
-          </div>
-        </div>
-      )}
+  const base = parts.reduce((acc, p) => acc + (p.ok ? p.w : 0), 0);
+  const baseMax = parts.reduce((acc, p) => acc + p.w, 0);
 
-      {status === "FAILED" && (
-        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          <div className="flex items-center gap-2 font-semibold">
-            <AlertCircle size={16} /> Échec de génération
-          </div>
-          <p className="mt-1">{errorMessage || "Une erreur est survenue lors du traitement."}</p>
-        </div>
-      )}
+  const atsInternal =
+    typeof s1?.ats?.score_internal === "number" ? s1.ats.score_internal : typeof meta?.ats_score_internal === "number" ? meta.ats_score_internal : null;
 
-      {status === "COMPLETED" && (
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
-          <div className="flex items-center gap-2 font-semibold">
-            <CheckCircle size={16} /> CV ATS prêt.
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-};
+  const score = Math.round((base / baseMax) * 70 + (atsInternal === null ? 0 : clamp(Math.round(atsInternal), 0, 100) * 0.3));
+  return clamp(score, 0, 100);
+}
 
-// ---------------------------------------------------------------------------
-// DASHBOARD PAGE (FULL)
-// DASHBOARD PAGE (FULL)
-// ---------------------------------------------------------------------------
-const DashboardPage: React.FC = () => {
-  const [status, setStatus] = useState<"idle" | "uploading" | "analyzing" | "success" | "error">("idle");
-  const [errorMessage, setErrorMessage] = useState("");
-  const [status, setStatus] = useState<"idle" | "uploading" | "analyzing" | "success" | "error">("idle");
-  const [errorMessage, setErrorMessage] = useState("");
+async function putFileWithProgress(uploadUrl: string, file: File, contentType: string, onProgress?: (pct: number) => void) {
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl);
+    xhr.setRequestHeader("Content-Type", contentType);
 
-  const [hasData, setHasData] = useState(false);
-  const [candidateData, setCandidateData] = useState<ParsedCV | null>(null);
+    xhr.upload.onprogress = (evt) => {
+      if (!evt.lengthComputable) return;
+      const pct = Math.round((evt.loaded / evt.total) * 100);
+      onProgress?.(clamp(pct, 0, 100));
+    };
 
-  const [uploadedKey, setUploadedKey] = useState<string | null>(null);
-  const [pollingTime, setPollingTime] = useState(0);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      reject(new Error(`Echec PUT S3 (${xhr.status})`));
+    };
 
-  const pollingInterval = useRef<number | null>(null);
-  const timerInterval = useRef<number | null>(null);
+    xhr.onerror = () => reject(new Error("Erreur réseau pendant l'upload"));
+    xhr.send(file);
+  });
+}
 
+// -----------------------------------------------------------------------------
+// Page
+// -----------------------------------------------------------------------------
+
+export default function DashboardPage() {
+  const [pageStatus, setPageStatus] = useState<PageStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string>("");
+
+  const [candidate, setCandidate] = useState<CandidateProfile | null>(null);
+  const [uploadPct, setUploadPct] = useState<number>(0);
+  const [analysisSeconds, setAnalysisSeconds] = useState<number>(0);
+
+  // Step2 (manual)
   const [step2Status, setStep2Status] = useState<Step2Status>("NOT_RUN");
-  const [step2ErrorMessage, setStep2ErrorMessage] = useState("");
-  const [step2Elapsed, setStep2Elapsed] = useState(0);
-  const [isStep2Generating, setIsStep2Generating] = useState(false);
+  const [step2Error, setStep2Error] = useState<string>("");
+  const [step2Seconds, setStep2Seconds] = useState<number>(0);
 
-  const step2Timer = useRef<number | null>(null);
-  const stopStep2Polling = useRef<(() => void) | null>(null);
+  // Modals
+  const [showStep1Json, setShowStep1Json] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(false);
 
-  const [showDebugModal, setShowDebugModal] = useState(false);
+  // "Pro" simulation (until real billing exists)
+  const [isPro, setIsPro] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("cvision_is_pro") === "1";
+    } catch {
+      return false;
+    }
+  });
 
-  // ✅ Step2 JSON auto-load (when COMPLETED but step2_json missing)
-  const [step2JsonLoading, setStep2JsonLoading] = useState(false);
-  const [step2JsonLoadError, setStep2JsonLoadError] = useState<string>("");
+  const analysisTimerRef = useRef<number | null>(null);
+  const pollStep1Ref = useRef<number | null>(null);
 
-  // Cleanup
-  // ✅ Step2 JSON auto-load (when COMPLETED but step2_json missing)
-  const [step2JsonLoading, setStep2JsonLoading] = useState(false);
-  const [step2JsonLoadError, setStep2JsonLoadError] = useState<string>("");
+  const step2TimerRef = useRef<number | null>(null);
+  const stopStep2PollingRef = useRef<(() => void) | null>(null);
+
+  const step1Status = getStep1Status(candidate);
+
+  const globalScore = useMemo(() => computeGlobalScore(candidate), [candidate]);
+  const verdict = useMemo(() => computeVerdict(globalScore), [globalScore]);
+
+  const audit = useMemo(() => (candidate ? computeAudit(candidate) : null), [candidate]);
+  const step2Ready = useMemo(() => resolveStep2Status(candidate) === "COMPLETED", [candidate]);
+
+  // Keep Step2 status derived from candidate
+  useEffect(() => {
+    setStep2Status(resolveStep2Status(candidate));
+    setStep2Error(resolveStep2Status(candidate) === "FAILED" ? getStep2ErrorMessage(candidate) : "");
+  }, [candidate]);
 
   // Cleanup
   useEffect(() => {
     return () => {
-      stopPolling();
-      stopStep2Timers();
+      if (pollStep1Ref.current) window.clearInterval(pollStep1Ref.current);
+      if (analysisTimerRef.current) window.clearInterval(analysisTimerRef.current);
+      if (step2TimerRef.current) window.clearInterval(step2TimerRef.current);
+      if (stopStep2PollingRef.current) stopStep2PollingRef.current();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep derived step2 status up-to-date
+  // Paywall: show once Step1 is COMPLETED and diagnosis is available
   useEffect(() => {
-    if (!candidateData) {
-      setStep2Status("NOT_RUN");
-      setStep2ErrorMessage("");
-      return;
+    if (!candidate) return;
+    if (step1Status !== "COMPLETED") return;
+
+    // Only after we have audit rows (diagnostic computed)
+    if (!audit?.rows || audit.rows.length === 0) return;
+
+    if (isPro) return;
+
+    // avoid annoying loops
+    try {
+      const dismissed = sessionStorage.getItem("cvision_paywall_dismissed") === "1";
+      if (!dismissed) setShowPaywall(true);
+    } catch {
+      setShowPaywall(true);
     }
-    const resolved = resolveStep2Status(candidateData);
-    setStep2Status(resolved);
-    setStep2ErrorMessage(resolved === "FAILED" ? getStep2ErrorMessage(candidateData) : "");
-  }, [candidateData]);
+  }, [audit?.rows?.length, candidate, isPro, step1Status]);
 
-  const stopPolling = () => {
-    if (pollingInterval.current) {
-      window.clearInterval(pollingInterval.current);
-      pollingInterval.current = null;
-    }
-    if (timerInterval.current) {
-      window.clearInterval(timerInterval.current);
-      timerInterval.current = null;
-    }
-  };
-
-  const stopStep2Timers = () => {
-    if (step2Timer.current) {
-      window.clearInterval(step2Timer.current);
-      step2Timer.current = null;
-    }
-    if (stopStep2Polling.current) {
-      stopStep2Polling.current();
-      stopStep2Polling.current = null;
-    }
-  };
-
-  const mergeCandidateData = (nextProfile: ParsedCV) => {
-    setCandidateData((prev) => {
-      const prevData: any = prev || {};
-      const next: any = nextProfile || {};
-      return {
-        ...prevData,
-        ...next,
-        candidate_id: next.candidate_id || prevData.candidate_id,
-        meta: next.meta || prevData.meta,
-        step1_json: prevData.step1_json || next.step1_json,
-        // Step2
-        step2_json: next.step2_json || prevData.step2_json,
-        step2_status: next.step2_status || prevData.step2_status,
-        step2_meta: next.step2_meta || prevData.step2_meta,
-        cv_master_s3_key: next.cv_master_s3_key ?? prevData.cv_master_s3_key,
-        step2_error: next.step2_error || prevData.step2_error,
-      };
-    });
-  };
-
-  // ✅ Auto-resume Step2 polling after refresh / navigation
-  useEffect(() => {
-    if (!candidateData?.candidate_id) return;
-
-    const st = resolveStep2Status(candidateData);
-    if (st !== "QUEUED" && st !== "PROCESSING") return;
-
-    if (stopStep2Polling.current) return;
-
-    if (!step2Timer.current) {
-      setStep2Elapsed(0);
-      step2Timer.current = window.setInterval(() => setStep2Elapsed((t) => t + 1), 1000);
-    }
-
-    stopStep2Polling.current = startStep2Polling({
-      candidateId: candidateData.candidate_id,
-      getProfile: (id) => getCandidateProfile(id, "all"),
-      onUpdate: (profile, statusResolved) => {
-        mergeCandidateData(profile as any);
-        setStep2Status(statusResolved);
-        if (statusResolved === "FAILED") setStep2ErrorMessage(getStep2ErrorMessage(profile));
-      },
-      onDone: (profile, statusResolved) => {
-        mergeCandidateData(profile as any);
-        setStep2Status(statusResolved);
-        setIsStep2Generating(false);
-        if (statusResolved === "FAILED") setStep2ErrorMessage(getStep2ErrorMessage(profile));
-        stopStep2Timers();
-      },
-      onError: (error) => console.error("Erreur polling Step2(auto):", error),
-      intervalMs: 2500,
-      maxAttempts: 200,
-    });
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidateData?.candidate_id, candidateData?.step2_status, candidateData?.cv_master_s3_key]);
-
-  // ✅ Auto-fetch Step2 JSON as soon as COMPLETED (if missing)
-  useEffect(() => {
-    const cid = candidateData?.candidate_id;
-    if (!cid) return;
-
-    if (step2Status !== "COMPLETED") return;
-
-    const already = candidateData?.step2_json && typeof candidateData.step2_json === "object" && Object.keys(candidateData.step2_json).length > 0;
-    if (already) return;
-
-    // Only try if we have the key (or meta key) to avoid useless calls
-    const cvKey = (candidateData as any)?.cv_master_s3_key ?? (candidateData as any)?.meta?.cv_master_s3_key ?? null;
-    if (!cvKey) return;
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        setStep2JsonLoadError("");
-        setStep2JsonLoading(true);
-
-        // Presigned download URL from BFF
-        const art = await getArtifactUrl(cid, "step2_cv_master");
-
-        // Fetch JSON content (may fail if S3 CORS not configured)
-        const res = await fetch(art.url, { method: "GET" });
-        if (!res.ok) throw new Error(`Fetch Step2 JSON échoué (${res.status})`);
-        const json = await res.json();
-
-        if (cancelled) return;
-
-        mergeCandidateData({
-          candidate_id: cid,
-          step2_json: json,
-          cv_master_s3_key: cvKey,
-        } as any);
-      } catch (e: any) {
-        if (cancelled) return;
-        setStep2JsonLoadError(
-          e?.message ||
-            "Impossible de charger automatiquement le JSON Step2 (souvent dû à la CORS S3). Tu peux quand même le télécharger via le bouton."
-        );
-      } finally {
-        if (!cancelled) setStep2JsonLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step2Status, candidateData?.candidate_id, candidateData?.cv_master_s3_key]);
-
-  const startPolling = (candidateId: string) => {
-    stopPolling();
-    setPollingTime(0);
-
-    timerInterval.current = window.setInterval(() => {
-      setPollingTime((t) => t + 1);
-    }, 1000);
-
-    let attempts = 0;
-    const maxAttempts = 300; // 10 minutes @ 2s
-
-    pollingInterval.current = window.setInterval(async () => {
-      attempts++;
-      try {
-        const preview = await getCandidateProfile(candidateId, "preview").catch((e: any) => {
-          const msg = String(e?.message || "");
-          if (msg.includes("introuvable") || msg.includes("404")) return null;
-          throw e;
-        });
-
-        if (!preview) {
-          if (attempts >= maxAttempts) {
-            stopPolling();
-            setStatus("error");
-            setErrorMessage("Délai d'attente dépassé (10min). Vérifie CloudWatch côté Step1.");
-          }
-          return;
-        }
-
-        const meta = (preview as any).meta || preview;
-        const st = meta?.status || (preview as any).status;
-
-        if (st === "FAILED") {
-          stopPolling();
-          setStatus("error");
-          setErrorMessage(meta?.error_message || (preview as any).error_message || "L'analyse a échoué côté serveur (voir logs CloudWatch).");
-          setErrorMessage(meta?.error_message || (preview as any).error_message || "L'analyse a échoué côté serveur (voir logs CloudWatch).");
-          return;
-        }
-
-        if (st === "COMPLETED") {
-          const full = await getCandidateProfile(candidateId, "all");
-
-          const merged: ParsedCV = {
-            ...(full as any),
-            candidate_id: (full as any).candidate_id || candidateId,
-            meta: (full as any).meta || meta,
-            step1_json: (full as any).step1_json,
-            // step2
-            step2_json: (full as any).step2_json,
-            // step2
-            step2_json: (full as any).step2_json,
-            step2_error: (full as any).step2_error,
-            step2_status: (full as any).step2_status,
-            cv_master_s3_key: (full as any).cv_master_s3_key ?? (full as any)?.meta?.cv_master_s3_key,
-            step2_meta: (full as any).step2_meta ?? (full as any)?.meta?.step2_meta,
-            step2_status: (full as any).step2_status,
-            cv_master_s3_key: (full as any).cv_master_s3_key ?? (full as any)?.meta?.cv_master_s3_key,
-            step2_meta: (full as any).step2_meta ?? (full as any)?.meta?.step2_meta,
-          };
-
-          stopPolling();
-          setCandidateData(merged);
-          setHasData(true);
-          setStatus("success");
-        }
-
-        if (attempts >= maxAttempts) {
-          stopPolling();
-          setStatus("error");
-          setErrorMessage("Délai d'attente dépassé (10min). Vérifie CloudWatch côté Step1.");
-        }
-      } catch (err: any) {
-        console.error("Erreur polling:", err);
-      }
-    }, 2000);
-  };
-
-  const handleUpload = async (file: File) => {
-    setStatus("uploading");
+  function resetAll() {
+    setPageStatus("idle");
     setErrorMessage("");
-    setStatus("uploading");
-    setErrorMessage("");
-    setCandidateData(null);
-    setHasData(false);
-    setUploadedKey(null);
-    stopPolling();
-    stopStep2Timers();
-    setStep2Status("NOT_RUN");
-    setStep2ErrorMessage("");
-    setStep2Elapsed(0);
-    setIsStep2Generating(false);
-    setStep2JsonLoading(false);
-    setStep2JsonLoadError("");
+    setCandidate(null);
+    setUploadPct(0);
+    setAnalysisSeconds(0);
+    setStep2Seconds(0);
+    setStep2Error("");
+    setShowStep1Json(false);
+    setShowPaywall(false);
+
+    if (pollStep1Ref.current) window.clearInterval(pollStep1Ref.current);
+    if (analysisTimerRef.current) window.clearInterval(analysisTimerRef.current);
+    if (step2TimerRef.current) window.clearInterval(step2TimerRef.current);
+    if (stopStep2PollingRef.current) stopStep2PollingRef.current();
+
+    pollStep1Ref.current = null;
+    analysisTimerRef.current = null;
+    step2TimerRef.current = null;
+    stopStep2PollingRef.current = null;
+  }
+
+  async function handleUpload(file: File) {
+    resetAll();
+    setPageStatus("uploading");
 
     try {
-      const uploadTicketResponse = await fetch(API_UPLOAD_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      // 1) Ask for upload ticket
+      const ticketRes = await fetch(API_UPLOAD_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           filename: file.name,
           content_type: file.type || "application/pdf",
-          content_type: file.type || "application/pdf",
           content_length: file.size,
         }),
       });
 
-      if (!uploadTicketResponse.ok) {
-        const txt = await uploadTicketResponse.text().catch(() => "");
-        throw new Error(`Erreur API Upload (${uploadTicketResponse.status}). ${txt}`);
+      if (!ticketRes.ok) {
+        const txt = await ticketRes.text().catch(() => "");
+        throw new Error(`Erreur API Upload (${ticketRes.status}). ${txt}`);
       }
 
-      const ticket = await uploadTicketResponse.json();
-      const upload_url = ticket.upload_url;
-      const candidate_id = ticket.candidate_id;
-      const key = ticket.key;
-      const signed_content_type = ticket.content_type || (file.type || "application/pdf");
-      const signed_content_type = ticket.content_type || (file.type || "application/pdf");
+      const ticket = await ticketRes.json();
+      const uploadUrl = ticket.upload_url;
+      const candidateId = ticket.candidate_id;
+      const signedContentType = ticket.content_type || (file.type || "application/pdf");
 
-      if (!upload_url || !candidate_id || !key) {
-        throw new Error("Réponse PostCV invalide: upload_url / candidate_id / key manquants.");
+      if (!uploadUrl || !candidateId) {
+        throw new Error("Réponse upload invalide (upload_url / candidate_id manquants)");
       }
 
-      const putRes = await fetch(upload_url, {
-        method: "PUT",
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": signed_content_type },
-        headers: { "Content-Type": signed_content_type },
-      });
+      // 2) PUT file to S3 with progress
+      setUploadPct(0);
+      await putFileWithProgress(uploadUrl, file, signedContentType, setUploadPct);
+      setUploadPct(100);
 
-      if (!putRes.ok) {
-        const hint =
-          putRes.status === 403
-            ? " (403: mismatch Content-Type entre signature et PUT — assure-toi d'envoyer EXACTEMENT le même Content-Type)"
-            : "";
-        const hint =
-          putRes.status === 403
-            ? " (403: mismatch Content-Type entre signature et PUT — assure-toi d'envoyer EXACTEMENT le même Content-Type)"
-            : "";
-        throw new Error(`Échec PUT S3 (${putRes.status})${hint}`);
-      }
+      // 3) Start analysis polling
+      setPageStatus("analyzing");
+      setAnalysisSeconds(0);
+      analysisTimerRef.current = window.setInterval(() => setAnalysisSeconds((s) => s + 1), 1000);
 
-      setUploadedKey(key);
-      setStatus("analyzing");
-      setStatus("analyzing");
-      startPolling(candidate_id);
-    } catch (error: any) {
-      console.error(error);
-      setStatus("error");
-      setErrorMessage(error?.message || "Une erreur est survenue.");
-      setStatus("error");
-      setErrorMessage(error?.message || "Une erreur est survenue.");
-    }
-  };
+      let attempts = 0;
+      const maxAttempts = 300; // ~10 min @ 2s
 
-  const openStep1Artifact = async () => {
-    const cid = candidateData?.candidate_id;
-    if (!cid) return;
-    try {
-      const r = await getArtifactUrl(cid, "step1_json");
-      window.open(r.url, "_blank", "noopener,noreferrer");
+      pollStep1Ref.current = window.setInterval(async () => {
+        attempts += 1;
+        try {
+          const preview = await getCandidateProfile(candidateId, "preview").catch((e: any) => {
+            const msg = String(e?.message || "");
+            if (msg.includes("404") || msg.toLowerCase().includes("introuvable")) return null;
+            throw e;
+          });
+
+          if (!preview) {
+            if (attempts >= maxAttempts) throw new Error("Délai d'attente dépassé (10min). Vérifie CloudWatch côté Step1.");
+            return;
+          }
+
+          const meta = (preview as any).meta || preview;
+          const st = upper(meta?.status || (preview as any).status);
+
+          if (st === "FAILED") {
+            throw new Error(meta?.error_message || (preview as any).error_message || "L'analyse a échoué côté serveur (voir logs CloudWatch). ");
+          }
+
+          if (st === "COMPLETED") {
+            const full = await getCandidateProfile(candidateId, "all");
+            setCandidate(full as any);
+
+            if (pollStep1Ref.current) window.clearInterval(pollStep1Ref.current);
+            if (analysisTimerRef.current) window.clearInterval(analysisTimerRef.current);
+            pollStep1Ref.current = null;
+            analysisTimerRef.current = null;
+
+            setPageStatus("ready");
+          }
+
+          if (attempts >= maxAttempts) {
+            throw new Error("Délai d'attente dépassé (10min). Vérifie CloudWatch côté Step1.");
+          }
+        } catch (e: any) {
+          if (pollStep1Ref.current) window.clearInterval(pollStep1Ref.current);
+          if (analysisTimerRef.current) window.clearInterval(analysisTimerRef.current);
+          pollStep1Ref.current = null;
+          analysisTimerRef.current = null;
+
+          setPageStatus("error");
+          setErrorMessage(e?.message || "Une erreur est survenue.");
+        }
+      }, 2000);
     } catch (e: any) {
-      console.error(e);
-      setStatus("error");
-      setErrorMessage(e?.message || "Impossible d'ouvrir l'artefact step1_json");
+      setPageStatus("error");
+      setErrorMessage(e?.message || "Une erreur est survenue.");
     }
-  };
+  }
 
-  const handleGenerateStep2 = async () => {
-    const cid = candidateData?.candidate_id;
-    if (!cid || isStep2Generating) return;
+  async function openStep1ArtifactInNewTab() {
+    const cid = candidate?.candidate_id;
+    if (!cid) return;
+    const r = await getArtifactUrl(cid, "step1_json");
+    window.open(r.url, "_blank", "noopener,noreferrer");
+  }
 
-    const step1Status = String(candidateData?.meta?.status || candidateData?.status || "").toUpperCase();
-    if (step1Status !== "COMPLETED") {
-      setStep2Status("FAILED");
-      setStep2ErrorMessage("Step1 n'est pas COMPLETED : impossible de lancer Step2.");
+  async function handleImproveStep2() {
+    const cid = candidate?.candidate_id;
+    if (!cid) return;
+
+    // Paywall guard
+    if (!isPro) {
+      setShowPaywall(true);
       return;
     }
 
-    setStep2ErrorMessage("");
-    setStep2JsonLoadError("");
-    setIsStep2Generating(true);
-    setStep2Status("QUEUED");
-    setStep2Elapsed(0);
+    // Step1 guard
+    if (step1Status !== "COMPLETED") {
+      setStep2Status("FAILED");
+      setStep2Error("Step1 n'est pas COMPLETED : impossible de lancer l'amélioration.");
+      return;
+    }
 
-    stopStep2Timers();
-    step2Timer.current = window.setInterval(() => setStep2Elapsed((t) => t + 1), 1000);
+    // Reset local Step2 timers/polling
+    if (step2TimerRef.current) window.clearInterval(step2TimerRef.current);
+    if (stopStep2PollingRef.current) stopStep2PollingRef.current();
+
+    setStep2Seconds(0);
+    setStep2Error("");
+    setStep2Status("QUEUED");
+    step2TimerRef.current = window.setInterval(() => setStep2Seconds((s) => s + 1), 1000);
 
     try {
       await triggerStep2(cid);
     } catch (e: any) {
-      setIsStep2Generating(false);
-      stopStep2Timers();
+      if (step2TimerRef.current) window.clearInterval(step2TimerRef.current);
+      step2TimerRef.current = null;
+
       setStep2Status("FAILED");
-      setStep2ErrorMessage(e?.message || "Impossible de lancer la génération Step2.");
+      setStep2Error(e?.message || "Impossible de lancer Step2.");
       return;
     }
 
-    stopStep2Polling.current = startStep2Polling({
+    stopStep2PollingRef.current = startStep2Polling({
       candidateId: cid,
       getProfile: (id) => getCandidateProfile(id, "all"),
+      intervalMs: 2500,
+      maxAttempts: 240,
       onUpdate: (profile, st) => {
-        mergeCandidateData(profile as any);
+        setCandidate(profile as any);
         setStep2Status(st);
-        if (st === "FAILED") setStep2ErrorMessage(getStep2ErrorMessage(profile));
+        if (st === "FAILED") setStep2Error(getStep2ErrorMessage(profile));
       },
       onDone: (profile, st) => {
-        mergeCandidateData(profile as any);
+        setCandidate(profile as any);
         setStep2Status(st);
-        setIsStep2Generating(false);
-        if (st === "FAILED") setStep2ErrorMessage(getStep2ErrorMessage(profile));
-        stopStep2Timers();
+        if (step2TimerRef.current) window.clearInterval(step2TimerRef.current);
+        step2TimerRef.current = null;
+        stopStep2PollingRef.current = null;
+
+        if (st === "FAILED") setStep2Error(getStep2ErrorMessage(profile));
       },
-      onError: (error) => console.error("Erreur polling Step2:", error),
-      intervalMs: 2500,
-      maxAttempts: 200,
+      onError: (err) => {
+        console.error(err);
+      },
     });
-  };
+  }
 
-  const handleDownloadStep2Pdf = async () => {
-    const cid = candidateData?.candidate_id;
-    if (!cid) return;
-    try {
-      const r = await getArtifactUrl(cid, "step4_pdf");
-      window.open(r.url, "_blank", "noopener,noreferrer");
-    } catch (e: any) {
-      console.error(e);
-      setStep2ErrorMessage(e?.message || "Impossible de télécharger le PDF.");
-      setStep2Status("FAILED");
-    }
-  };
-
-  const handleDownloadStep2Json = async () => {
-    const cid = candidateData?.candidate_id;
-    if (!cid) return;
-    try {
-      const r = await getArtifactUrl(cid, "step2_cv_master");
-      window.open(r.url, "_blank", "noopener,noreferrer");
-    } catch (e: any) {
-      console.error(e);
-      setStep2ErrorMessage(e?.message || "Impossible de télécharger le JSON.");
-      setStep2Status("FAILED");
-    }
-  };
-
-  const step1Completed = useMemo(() => {
-    const st = String(candidateData?.meta?.status || candidateData?.status || "").toUpperCase();
-    return st === "COMPLETED";
-  }, [candidateData?.meta?.status, candidateData?.status]);
+  const canShowResults = pageStatus === "ready" && !!candidate;
 
   return (
-    <div className="bg-gray-50 min-h-screen pt-24 pb-16">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-6xl mx-auto px-4 py-10">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-8">
           <div>
-            <p className="text-sm text-indigo-600 font-semibold">Espace Connecté AWS</p>
-            <h1 className="text-3xl font-bold text-gray-900">Dashboard CVision</h1>
-            <p className="text-gray-600">
-              Pipeline : <span className="text-indigo-500 font-bold">Asynchrone (S3 Trigger + Polling)</span>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold border border-indigo-100">
+              <Sparkles size={14} /> CVision — Diagnostic ATS
+            </div>
+            <h1 className="text-3xl font-extrabold text-gray-900 mt-3">Je ne reçois pas de réponses → je veux comprendre pourquoi</h1>
+            <p className="text-gray-600 mt-2 max-w-2xl">
+              Uploade ton CV. On te montre <b>ce qui bloque</b> (ATS, structure, mots-clés) puis on peut générer une version améliorée.
             </p>
           </div>
-          {status === "success" && candidateData?.candidate_id && (
-          {status === "success" && candidateData?.candidate_id && (
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={openStep1Artifact}>
-                Artefact Step1
-              </Button>
-              <Button variant="outline" onClick={() => setShowDebugModal(true)}>
-                Debug (JSON)
-              </Button>
-              <Button variant="outline" onClick={openStep1Artifact}>
-                Artefact Step1
-              </Button>
-              <Button variant="outline" onClick={() => setShowDebugModal(true)}>
-                Debug (JSON)
-              </Button>
-            </div>
-          )}
+
+          <div className="flex items-center gap-2">
+            <Pill tone={isPro ? "good" : "info"}>
+              {isPro ? (
+                <span className="inline-flex items-center gap-2">
+                  <Crown size={14} /> Pro activé
+                </span>
+              ) : (
+                "Freemium"
+              )}
+            </Pill>
+            <Button
+              variant="outline"
+              onClick={() => {
+                // small dev helper
+                const next = !isPro;
+                setIsPro(next);
+                try {
+                  localStorage.setItem("cvision_is_pro", next ? "1" : "0");
+                } catch {
+                  // ignore
+                }
+              }}
+            >
+              <ShieldCheck size={16} /> {isPro ? "Désactiver Pro" : "Simuler Pro"}
+            </Button>
+          </div>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-6 mb-8">
-          <Card className="p-6 lg:col-span-2">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900">Upload de CV</h2>
-              <Badge
-                variant={status === "success" ? "success" : status === "error" ? "error" : status !== "idle" ? "warning" : "neutral"}
-              >
-                {status === "idle" && "En attente"}
-                {status === "uploading" && "Transfert S3..."}
-                {status === "analyzing" && "Traitement IA en cours..."}
-                {status === "success" && "Terminé"}
-                {status === "error" && "Erreur"}
-              <Badge
-                variant={status === "success" ? "success" : status === "error" ? "error" : status !== "idle" ? "warning" : "neutral"}
-              >
-                {status === "idle" && "En attente"}
-                {status === "uploading" && "Transfert S3..."}
-                {status === "analyzing" && "Traitement IA en cours..."}
-                {status === "success" && "Terminé"}
-                {status === "error" && "Erreur"}
-              </Badge>
-            </div>
-
-            <FileUpload onUpload={handleUpload} />
-
-            <div className="mt-4">
-              {status === "analyzing" && (
-              {status === "analyzing" && (
-                <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100 animate-pulse">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-indigo-700 font-medium flex items-center gap-2">
-                      <Loader2 size={16} className="animate-spin" />
-                      Analyse en arrière-plan...
-                    </p>
-                    <span className="text-xs font-mono text-indigo-600 bg-indigo-100 px-2 py-1 rounded flex items-center gap-1">
-                      <Clock size={12} /> {Math.floor(pollingTime / 60)}m {pollingTime % 60}s
-                    </span>
-                  </div>
-                  <p className="text-xs text-indigo-500 mt-2">
-                    L'IA analyse le document. Cela peut prendre quelques minutes selon la charge AWS.
-                    {pollingTime > 60 && " (Traitement long détecté, patientez...)"}
-                  </p>
-                </div>
-              )}
-
-              {status === "error" && (
-              {status === "error" && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-sm text-red-700 flex items-center gap-2 font-semibold">
-                    <AlertCircle size={16} /> Échec
-                  </p>
-                  <p className="text-xs text-red-600 mt-1">{errorMessage}</p>
-                </div>
-              )}
-
-              {status === "success" && (
-              {status === "success" && (
-                <div className="flex flex-col gap-2">
-                  <p className="text-sm text-green-600 flex items-center gap-2 font-medium">
-                    <CheckCircle size={16} /> Analyse réussie en {pollingTime}s !
-                  </p>
-                  <p className="text-xs text-gray-500">ID: {candidateData?.candidate_id}</p>
-                  {uploadedKey && <p className="text-xs text-gray-400">S3: {uploadedKey}</p>}
-                  <div className="flex gap-2 mt-2">
-                    <Button variant="outline" className="flex-1" onClick={openStep1Artifact} disabled={!candidateData?.candidate_id}>
-                      Ouvrir artefact Step1
-                    </Button>
-                    <Button variant="outline" className="flex-1" onClick={() => setShowDebugModal(true)} disabled={!candidateData}>
-                      Debug (JSON)
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </Card>
-
-          <Card className="p-6 space-y-4">
-            <h3 className="font-semibold text-gray-900">Résumé</h3>
-            {hasData ? (
-              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div>
-                  <p className="text-xs text-gray-500">Nom détecté</p>
-                  <p className="font-bold text-lg">{candidateData?.meta?.full_name || candidateData?.step1_json?.identity?.full_name || "Inconnu"}</p>
-                  <p className="font-bold text-lg">{candidateData?.meta?.full_name || candidateData?.step1_json?.identity?.full_name || "Inconnu"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Titre</p>
-                  <p className="font-medium">{candidateData?.meta?.headline || candidateData?.step1_json?.identity?.headline || "Non spécifié"}</p>
-                  <p className="font-medium">{candidateData?.meta?.headline || candidateData?.step1_json?.identity?.headline || "Non spécifié"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Expérience</p>
-                  <p className="font-medium text-indigo-600">
-                    {typeof candidateData?.meta?.years_of_experience_inferred === "number"
-                    {typeof candidateData?.meta?.years_of_experience_inferred === "number"
-                      ? `${candidateData?.meta?.years_of_experience_inferred.toFixed(1)} ans`
-                      : "—"}
-                      : "—"}
-                  </p>
-                </div>
-                <div className="pt-2">
-                  <Badge variant={step2Status === "FAILED" ? "warning" : step2Status === "COMPLETED" ? "success" : "neutral"}>
-                    Step2: {step2Status}
-                  <Badge variant={step2Status === "FAILED" ? "warning" : step2Status === "COMPLETED" ? "success" : "neutral"}>
-                    Step2: {step2Status}
-                  </Badge>
-                </div>
+        {/* Upload */}
+        <Card className="mb-6">
+          <div className="p-6 border-b border-gray-100">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">1) Upload</h2>
+                <p className="text-sm text-gray-500 mt-1">Format PDF. Analyse asynchrone (S3 Trigger + polling).</p>
               </div>
-            ) : (
-              <div className="text-center text-gray-400 py-8">
-                <FileText size={48} className="mx-auto mb-2 opacity-20" />
-                <p className="text-sm">En attente de données</p>
+              <Pill tone={pageStatus === "error" ? "bad" : pageStatus === "ready" ? "good" : "info"}>
+                {pageStatus === "idle"
+                  ? "Prêt"
+                  : pageStatus === "uploading"
+                  ? "Upload…"
+                  : pageStatus === "analyzing"
+                  ? "Analyse…"
+                  : pageStatus === "ready"
+                  ? "Diagnostic prêt"
+                  : "Erreur"}
+              </Pill>
+            </div>
+          </div>
+
+          <div className="p-6">
+            <div
+              className="relative border-2 border-dashed rounded-2xl p-8 text-center border-gray-300 hover:border-indigo-400 transition-colors"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const f = e.dataTransfer.files?.[0];
+                if (f) void handleUpload(f);
+              }}
+            >
+              <input
+                type="file"
+                accept=".pdf"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleUpload(f);
+                }}
+              />
+
+              <div className="flex flex-col items-center gap-3 pointer-events-none">
+                <div className="p-3 bg-indigo-100 rounded-full text-indigo-600">
+                  <Upload size={24} />
+                </div>
+                <p className="text-sm text-gray-700 font-semibold">Glisse ton PDF ici, ou clique pour sélectionner</p>
+                <p className="text-xs text-gray-500">On ne stocke que les artefacts nécessaires au traitement.</p>
+              </div>
+            </div>
+
+            {/* Upload progress */}
+            {pageStatus === "uploading" && (
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between text-sm text-gray-600">
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 size={16} className="animate-spin" /> Upload en cours…
+                  </span>
+                  <span className="font-semibold">{uploadPct}%</span>
+                </div>
+                <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-500" style={{ width: `${uploadPct}%` }} />
+                </div>
               </div>
             )}
-          </Card>
-        </div>
 
-        {hasData && candidateData && (
-          <div className="mt-2 space-y-6">
-          <div className="mt-2 space-y-6">
-            <AuditDashboard profile={candidateData} onOpenJson={openStep1Artifact} />
+            {/* Analyzing */}
+            {pageStatus === "analyzing" && (
+              <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+                <div className="flex items-center gap-2 text-indigo-800 font-semibold">
+                  <Loader2 size={16} className="animate-spin" /> Analyse en cours
+                </div>
+                <div className="text-sm text-indigo-800/80 mt-1">
+                  <span className="inline-flex items-center gap-2">
+                    <Clock size={16} /> {Math.floor(analysisSeconds / 60)}m {analysisSeconds % 60}s
+                  </span>
+                  <span className="ml-3">• Lecture ATS • Détection des manques • Extraction des expériences</span>
+                </div>
+                <div className="mt-3 h-2 w-full bg-indigo-100 rounded-full overflow-hidden">
+                  <div className="h-full w-1/3 bg-indigo-500 animate-pulse" />
+                </div>
+              </div>
+            )}
 
-            {/* ✅ Step2 audit auto: show as soon as COMPLETED, even if JSON is still loading */}
-            {step2Status === "COMPLETED" && (
-              <Card className="p-6">
-                <div className="flex items-center justify-between">
+            {/* Error */}
+            {pageStatus === "error" && (
+              <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertCircle size={16} /> Erreur
+                </div>
+                <p className="mt-1 whitespace-pre-wrap">{errorMessage}</p>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* Results */}
+        {canShowResults && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <Card className="lg:col-span-2">
+              <div className="p-6 border-b border-gray-100">
+                <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h3 className="text-lg font-bold text-gray-900">Audit Step2 (CV ATS-friendly)</h3>
-                    <p className="text-sm text-gray-500">Comparaison Step1 vs Step2 (améliorations IA)</p>
+                    <h2 className="text-lg font-bold text-gray-900">2) Résultat brut</h2>
+                    <p className="text-sm text-gray-500 mt-1">Un score simple pour savoir où tu en es.</p>
+                  </div>
+                  <Button variant="outline" onClick={() => setShowStep1Json(true)}>
+                    <FileText size={16} /> Voir Step1 JSON
+                  </Button>
+                </div>
+              </div>
+
+              <div className="p-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-500">Score de qualité CV</div>
+                    <div className="mt-2 flex items-end gap-3">
+                      <div className="text-5xl font-extrabold text-gray-900">{globalScore === null ? "—" : globalScore}</div>
+                      <div className="text-sm text-gray-600 mb-2">/ 100</div>
+                    </div>
+                    <div className="mt-2">
+                      <Pill tone={verdict.tone}>{verdict.emoji} {verdict.label}</Pill>
+                    </div>
+                  </div>
+
+                  <div className="w-full md:w-1/2">
+                    <div className="h-3 w-full rounded-full bg-gray-100 overflow-hidden">
+                      <div className="h-full bg-indigo-600" style={{ width: `${globalScore ?? 0}%` }} />
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500">
+                      Basé sur la complétude + lisibilité ATS. (Step3/4 apporteront le matching par job + exports)
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <Card>
+              <div className="p-6 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-900">3) Diagnostic</h2>
+                <p className="text-sm text-gray-500 mt-1">Ce qui explique concrètement le “pas de réponse”.</p>
+              </div>
+              <div className="p-6 space-y-3">
+                {audit?.rows?.slice(0, 4).map((r, idx) => (
+                  <div key={idx} className="flex items-start gap-3">
+                    <div className={`mt-0.5 h-2.5 w-2.5 rounded-full ${r.level === "good" ? "bg-emerald-500" : r.level === "warn" ? "bg-amber-500" : r.level === "bad" ? "bg-rose-500" : "bg-slate-400"}`} />
+                    <div className="text-sm">
+                      <div className="font-semibold text-gray-900">{r.field}</div>
+                      <div className="text-gray-600">{r.level === "bad" ? "Manquant ou faible" : r.level === "warn" ? "À optimiser" : "OK"}</div>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="pt-2">
+                  <div className="text-xs text-gray-500">
+                    Tu vois enfin ce qui cloche. L’étape suivante : générer une version optimisée ATS (Step2).
+                  </div>
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* Full Diagnostic (table) */}
+        {canShowResults && (
+          <div className="mb-6">
+            <Card>
+              <div className="p-6 border-b border-gray-100">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">Audit qualité (tableau)</h3>
+                    <p className="text-xs text-gray-500 mt-1">Vert = OK • Orange = amélioration • Rouge = manquant</p>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline" onClick={handleDownloadStep2Json}>
-                      Télécharger JSON
+                    <Pill tone="good">OK</Pill>
+                    <Pill tone="warn">À améliorer</Pill>
+                    <Pill tone="bad">Manquant</Pill>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6">
+                {/* Reuse computed rows as diagnostic table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] text-left">
+                    <thead className="bg-gray-50 text-xs text-gray-500">
+                      <tr>
+                        <th className="px-4 py-3">Critère</th>
+                        <th className="px-4 py-3">Step1 (actuel)</th>
+                        <th className="px-4 py-3">Recommandation</th>
+                        <th className="px-4 py-3">Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-sm">
+                      {(audit?.rows || []).map((r, idx) => (
+                        <tr key={idx} className="border-t align-top">
+                          <td className="px-4 py-4 font-semibold text-gray-900">{r.field}</td>
+                          <td className="px-4 py-4 text-gray-700 whitespace-pre-wrap">{r.step1}</td>
+                          <td className="px-4 py-4 text-gray-600 whitespace-pre-wrap">
+                            {r.level === "bad"
+                              ? "Bloquant : à compléter."
+                              : r.level === "warn"
+                              ? "Amélioration recommandée (ATS + clarté)."
+                              : "OK."}
+                          </td>
+                          <td className="px-4 py-4">
+                            <Pill tone={r.level === "good" ? "good" : r.level === "warn" ? "warn" : r.level === "bad" ? "bad" : "info"}>
+                              {r.level === "good" ? "OK" : r.level === "warn" ? "À optimiser" : r.level === "bad" ? "Manquant" : "Info"}
+                            </Pill>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* Step2 CTA */}
+        {canShowResults && (
+          <Card className="mb-6">
+            <div className="p-6 border-b border-gray-100">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">4) Amélioration IA (Step2)</h2>
+                  <p className="text-sm text-gray-500 mt-1">Un clic → CV réécrit, plus clair, plus ATS-friendly.</p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Pill tone={step2Status === "COMPLETED" ? "good" : step2Status === "FAILED" ? "bad" : step2Status === "PROCESSING" || step2Status === "QUEUED" ? "warn" : "info"}>
+                    {step2Status === "NOT_RUN"
+                      ? "Non lancé"
+                      : step2Status === "QUEUED"
+                      ? "En file"
+                      : step2Status === "PROCESSING"
+                      ? "En cours"
+                      : step2Status === "COMPLETED"
+                      ? "Prêt"
+                      : "Échec"}
+                  </Pill>
+
+                  {(step2Status === "NOT_RUN" || step2Status === "FAILED") && (
+                    <Button onClick={() => void handleImproveStep2()}>
+                      <Sparkles size={16} /> Améliorer mon CV !
                     </Button>
-                    <Button variant="outline" onClick={handleDownloadStep2Pdf}>
-                      Télécharger PDF
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {!isPro && (
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+                  <div className="flex items-center gap-2 font-semibold text-indigo-900">
+                    <Crown size={16} /> Débloquer l’amélioration IA
+                  </div>
+                  <div className="text-sm text-indigo-900/80 mt-1">
+                    Tu as le diagnostic gratuit. La génération du CV optimisé + preview/export est disponible en Pro.
+                  </div>
+                  <div className="mt-3">
+                    <Button onClick={() => setShowPaywall(true)}>
+                      <Crown size={16} /> Voir l’offre
                     </Button>
                   </div>
                 </div>
+              )}
 
-                {step2JsonLoading && (
-                  <div className="mt-4 flex items-center gap-2 text-sm text-indigo-700">
-                    <Loader2 size={16} className="animate-spin" />
-                    Chargement automatique du JSON Step2…
+              {(step2Status === "QUEUED" || step2Status === "PROCESSING") && (
+                <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+                  <div className="flex items-center gap-2 text-indigo-800 font-semibold">
+                    <Loader2 size={16} className="animate-spin" /> Amélioration en cours
                   </div>
-                )}
+                  <div className="text-sm text-indigo-800/80 mt-1">
+                    <Clock size={16} className="inline" /> {Math.floor(step2Seconds / 60)}m {step2Seconds % 60}s
+                    <span className="ml-3">• Réécriture • Mots-clés • Structure</span>
+                  </div>
+                  <div className="mt-3 h-2 w-full bg-indigo-100 rounded-full overflow-hidden">
+                    <div className="h-full w-1/3 bg-indigo-500 animate-pulse" />
+                  </div>
+                </div>
+              )}
 
-                {step2JsonLoadError && (
-                  <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                    {step2JsonLoadError}
+              {step2Status === "FAILED" && (
+                <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <AlertCircle size={16} /> Step2 a échoué
                   </div>
-                )}
+                  <p className="mt-1 whitespace-pre-wrap">{step2Error || "Une erreur est survenue."}</p>
+                </div>
+              )}
 
-                {candidateData.step2_json && (
-                  <div className="mt-6">
-                    <Step2AuditTable profile={candidateData as any} />
+              {step2Status === "COMPLETED" && (
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <CheckCircle size={16} /> CV amélioré prêt
                   </div>
-                )}
+                  <p className="mt-1">Tu peux maintenant comparer Step1 vs Step2 et constater la valeur ajoutée.</p>
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
 
-                {!step2JsonLoading && !candidateData.step2_json && !step2JsonLoadError && (
-                  <div className="mt-4 text-sm text-gray-600">
-                    Step2 est <b>COMPLETED</b> mais le JSON n’est pas encore hydraté. Ré-essaye dans 2 secondes ou télécharge le JSON.
-                  </div>
-                )}
-              </Card>
-            )}
+        {/* Step2 Audit compare */}
+        {canShowResults && step2Ready && audit?.rows && (
+          <div className="mb-10">
+            <Step2AuditTable rows={audit.rows} />
           </div>
         )}
 
-        {hasData && candidateData && (
-          <div className="mt-6">
-            <Step2Section
-              status={step2Status}
-              errorMessage={step2ErrorMessage}
-              isGenerating={isStep2Generating}
-              elapsedSeconds={step2Elapsed}
-              step1Completed={step1Completed}
-              onGenerate={handleGenerateStep2}
-              onDownloadPdf={handleDownloadStep2Pdf}
-              onDownloadJson={handleDownloadStep2Json}
-            />
+        {/* Step1 JSON modal */}
+        <Modal isOpen={showStep1Json} title="Artefact Step1 (JSON)" onClose={() => setShowStep1Json(false)}>
+          <div className="text-sm text-gray-600">
+            Utile pour debug backend. Pour l’utilisateur final, ce sera caché.
           </div>
-        )}
+          <div className="mt-4 flex gap-2">
+            <Button variant="outline" onClick={() => void openStep1ArtifactInNewTab()}>
+              <FileText size={16} /> Ouvrir dans un nouvel onglet
+            </Button>
+            <Button variant="outline" onClick={() => setShowStep1Json(false)}>
+              Fermer
+            </Button>
+          </div>
+        </Modal>
 
-        {hasData && candidateData && (
-          <div className="mt-6">
-            <Step2Section
-              status={step2Status}
-              errorMessage={step2ErrorMessage}
-              isGenerating={isStep2Generating}
-              elapsedSeconds={step2Elapsed}
-              onGenerate={handleGenerateStep2}
-              onDownloadPdf={handleDownloadStep2Pdf}
-              onDownloadJson={handleDownloadStep2Json}
-            />
+        {/* Paywall modal */}
+        <Modal
+          isOpen={showPaywall}
+          title="Passe en Pro pour corriger ton CV"
+          onClose={() => {
+            setShowPaywall(false);
+            try {
+              sessionStorage.setItem("cvision_paywall_dismissed", "1");
+            } catch {
+              // ignore
+            }
+          }}
+        >
+          <div className="space-y-4">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-center gap-2 font-bold text-gray-900">
+                <Crown size={18} /> Pro = conversion (preview + export + IA)
+              </div>
+              <ul className="mt-3 space-y-2 text-sm text-gray-700">
+                <li className="flex items-start gap-2">
+                  <CheckCircle size={16} className="mt-0.5 text-emerald-600" /> Génération Step2 : CV plus ATS-friendly
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle size={16} className="mt-0.5 text-emerald-600" /> Comparatif Step1 vs Step2 (preuve de valeur)
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle size={16} className="mt-0.5 text-emerald-600" /> Exports (Step4 PDF) dès que branché
+                </li>
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+              <div className="font-semibold text-indigo-900">Pourquoi maintenant ?</div>
+              <div className="text-sm text-indigo-900/80 mt-1">
+                Tu viens d’identifier ce qui bloque. La valeur, c’est de te donner une version corrigée immédiatement.
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                onClick={() => {
+                  setIsPro(true);
+                  setShowPaywall(false);
+                  try {
+                    localStorage.setItem("cvision_is_pro", "1");
+                  } catch {
+                    // ignore
+                  }
+                }}
+                className="w-full"
+              >
+                <Crown size={16} /> Activer Pro (simulation)
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowPaywall(false);
+                  try {
+                    sessionStorage.setItem("cvision_paywall_dismissed", "1");
+                  } catch {
+                    // ignore
+                  }
+                }}
+                className="w-full"
+              >
+                Continuer en gratuit
+              </Button>
+            </div>
+
+            <div className="text-xs text-gray-500">
+              Note: en prod, ce modal sera connecté à Clerk + Stripe. Ici, on simule le statut Pro pour valider l’UX.
+            </div>
           </div>
-        )}
+        </Modal>
       </div>
-
-      <Modal isOpen={showDebugModal} onClose={() => setShowDebugModal(false)} title="Debug — Profil brut (Live AWS)">
-        <pre className="text-xs bg-gray-900 text-green-400 p-4 rounded-lg overflow-x-auto h-[70vh]">
-          {JSON.stringify(candidateData, null, 2)}
-        </pre>
-      </Modal>
     </div>
   );
-};
-
-export default DashboardPage;
+}
