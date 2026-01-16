@@ -1,4 +1,4 @@
-//src/utils/step2.ts
+// src/utils/step2.ts
 export type Step2Status = "NOT_RUN" | "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
 
 const NORMALIZED_STATUSES: Record<string, Step2Status> = {
