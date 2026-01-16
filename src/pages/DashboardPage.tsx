@@ -1,6 +1,9 @@
 // src/pages/DashboardPage.tsx
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { CheckCircle, FileText, AlertCircle, Loader2, X, Upload, Clock } from "lucide-react";
+// src/pages/DashboardPage.tsx
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { CheckCircle, FileText, AlertCircle, Loader2, X, Upload, Clock } from "lucide-react";
 
 import { API_UPLOAD_URL } from "../config/api";
 import { getCandidateProfile, getArtifactUrl, triggerStep2 } from "../services/cvision";
@@ -16,6 +19,7 @@ type ParsedCV = {
   status?: string; // COMPLETED, FAILED, PROCESSING...
   error_message?: string;
 
+  meta?: any;
   meta?: any;
   step1_json?: any;
 
@@ -34,6 +38,7 @@ type ParsedCV = {
 
   raw_cv?: any;
   [k: string]: any;
+  [k: string]: any;
 };
 
 // --------------------
@@ -50,14 +55,28 @@ const Badge: React.FC<{ children: React.ReactNode; variant?: string }> = ({ chil
       : variant === "warning"
       ? "bg-amber-100 text-amber-800"
       : "bg-gray-100 text-gray-800";
+    variant === "purple"
+      ? "bg-purple-100 text-purple-800"
+      : variant === "success"
+      ? "bg-green-100 text-green-800"
+      : variant === "error"
+      ? "bg-red-100 text-red-800"
+      : variant === "warning"
+      ? "bg-amber-100 text-amber-800"
+      : "bg-gray-100 text-gray-800";
 
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${bg}`}>{children}</span>;
   return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${bg}`}>{children}</span>;
 };
 
 const Button: React.FC<any> = ({ children, variant = "primary", className = "", ...props }) => {
   const base =
     "inline-flex items-center justify-center font-medium transition-colors duration-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed";
+const Button: React.FC<any> = ({ children, variant = "primary", className = "", ...props }) => {
+  const base =
+    "inline-flex items-center justify-center font-medium transition-colors duration-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed";
   const styles =
+    variant === "primary"
     variant === "primary"
       ? "bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2"
       : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 px-4 py-2";
@@ -66,12 +85,24 @@ const Button: React.FC<any> = ({ children, variant = "primary", className = "", 
       {children}
     </button>
   );
+  return (
+    <button className={`${base} ${styles} ${className}`} {...props}>
+      {children}
+    </button>
+  );
 };
 
+const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = "" }) => (
 const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = "" }) => (
   <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden ${className}`}>{children}</div>
 );
 
+const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({
+  isOpen,
+  onClose,
+  title,
+  children,
+}) => {
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({
   isOpen,
   onClose,
@@ -84,6 +115,9 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
       <div className="bg-white rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
         <div className="p-6 border-b border-gray-100 flex justify-between items-center">
           <h3 className="text-xl font-bold text-gray-900">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={24} />
+          </button>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X size={24} />
           </button>
@@ -130,6 +164,13 @@ const FileUpload: React.FC<{ onUpload: (file: File) => void }> = ({ onUpload }) 
         e.preventDefault();
         setIsDragging(true);
       }}
+      className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-colors duration-200 ${
+        isDragging ? "border-indigo-500 bg-indigo-50" : "border-gray-300 hover:border-indigo-400"
+      }`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDragging(true);
+      }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={(e) => {
         e.preventDefault();
@@ -147,6 +188,9 @@ const FileUpload: React.FC<{ onUpload: (file: File) => void }> = ({ onUpload }) 
         <div className="p-3 bg-indigo-100 rounded-full text-indigo-600">
           <Upload size={24} />
         </div>
+        <div className="p-3 bg-indigo-100 rounded-full text-indigo-600">
+          <Upload size={24} />
+        </div>
         <p className="text-sm text-gray-600 font-medium">Glissez votre PDF ici</p>
         <p className="text-xs text-gray-400 mt-2">Mode Asynchrone (S3 Trigger + Polling)</p>
       </div>
@@ -156,9 +200,17 @@ const FileUpload: React.FC<{ onUpload: (file: File) => void }> = ({ onUpload }) 
 
 // --------------------
 // Audit UI
+// Audit UI
 // --------------------
 const Pill: React.FC<{ level: Level; children: React.ReactNode }> = ({ level, children }) => {
   const styles =
+    level === "good"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : level === "warn"
+      ? "bg-amber-50 text-amber-700 border-amber-200"
+      : level === "bad"
+      ? "bg-rose-50 text-rose-700 border-rose-200"
+      : "bg-slate-50 text-slate-700 border-slate-200";
     level === "good"
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
       : level === "warn"
@@ -173,7 +225,9 @@ const Pill: React.FC<{ level: Level; children: React.ReactNode }> = ({ level, ch
 const ScoreCard: React.FC<{ title: string; score: number | null; subtitle?: string }> = ({ title, score, subtitle }) => {
   const s = score === null ? null : clamp(Math.round(score), 0, 100);
   const level: Level = s === null ? "info" : s >= 70 ? "good" : s >= 50 ? "warn" : "bad";
+  const level: Level = s === null ? "info" : s >= 70 ? "good" : s >= 50 ? "warn" : "bad";
   const barColor =
+    level === "good" ? "bg-emerald-500" : level === "warn" ? "bg-amber-500" : level === "bad" ? "bg-rose-500" : "bg-slate-300";
     level === "good" ? "bg-emerald-500" : level === "warn" ? "bg-amber-500" : level === "bad" ? "bg-rose-500" : "bg-slate-300";
 
   return (
@@ -183,6 +237,7 @@ const ScoreCard: React.FC<{ title: string; score: number | null; subtitle?: stri
           <div className="text-sm font-semibold text-gray-900">{title}</div>
           {subtitle && <div className="text-xs text-gray-500 mt-0.5">{subtitle}</div>}
         </div>
+        <Pill level={level}>{s === null ? "—" : `${s}/100`}</Pill>
         <Pill level={level}>{s === null ? "—" : `${s}/100`}</Pill>
       </div>
 
@@ -202,6 +257,11 @@ const AuditDashboard: React.FC<{ profile: ParsedCV; onOpenJson: () => void }> = 
   const improvements = Array.isArray((a as any)?.improvements) ? (a as any).improvements : [];
   const metrics = Array.isArray((a as any)?.metrics) ? (a as any).metrics : [];
 
+  // ✅ hard guards (no crash)
+  const positives = Array.isArray((a as any)?.positives) ? (a as any).positives : [];
+  const improvements = Array.isArray((a as any)?.improvements) ? (a as any).improvements : [];
+  const metrics = Array.isArray((a as any)?.metrics) ? (a as any).metrics : [];
+
   return (
     <div className="space-y-6">
       <Card className="p-6">
@@ -210,7 +270,12 @@ const AuditDashboard: React.FC<{ profile: ParsedCV; onOpenJson: () => void }> = 
             <div>
               <h2 className="text-2xl font-bold text-gray-900">{safeText((a as any)?.fullName, "Candidat")}</h2>
               <p className="text-gray-600">{safeText((a as any)?.headline, "Titre non renseigné")}</p>
+              <h2 className="text-2xl font-bold text-gray-900">{safeText((a as any)?.fullName, "Candidat")}</h2>
+              <p className="text-gray-600">{safeText((a as any)?.headline, "Titre non renseigné")}</p>
               <p className="text-sm text-gray-500 mt-1">
+                {safeText((a as any)?.location, "Localisation non renseignée")}
+                {hasText((a as any)?.email) ? ` • ${(a as any).email}` : ""}
+                {hasText((a as any)?.phone) ? ` • ${(a as any).phone}` : ""}
                 {safeText((a as any)?.location, "Localisation non renseignée")}
                 {hasText((a as any)?.email) ? ` • ${(a as any).email}` : ""}
                 {hasText((a as any)?.phone) ? ` • ${(a as any).phone}` : ""}
@@ -242,6 +307,9 @@ const AuditDashboard: React.FC<{ profile: ParsedCV; onOpenJson: () => void }> = 
         <ScoreCard title="Qualité globale" score={(a as any)?.globalScore ?? null} subtitle="Complétude + skills + expériences + ATS" />
         <ScoreCard title="ATS interne" score={(a as any)?.atsInternal ?? null} subtitle="Lisibilité ATS + mots-clés" />
         <ScoreCard title="ATS modèle" score={(a as any)?.atsModel ?? null} subtitle="Pertinence modèle" />
+        <ScoreCard title="Qualité globale" score={(a as any)?.globalScore ?? null} subtitle="Complétude + skills + expériences + ATS" />
+        <ScoreCard title="ATS interne" score={(a as any)?.atsInternal ?? null} subtitle="Lisibilité ATS + mots-clés" />
+        <ScoreCard title="ATS modèle" score={(a as any)?.atsModel ?? null} subtitle="Pertinence modèle" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -251,6 +319,8 @@ const AuditDashboard: React.FC<{ profile: ParsedCV; onOpenJson: () => void }> = 
             <Pill level="good">À conserver</Pill>
           </div>
           <ul className="mt-3 list-disc pl-5 space-y-1 text-sm text-gray-700">
+            {(positives?.length ?? 0) === 0 ? <li>Aucun point fort détecté (profil incomplet).</li> : null}
+            {(positives ?? []).map((p: any, i: number) => (
             {(positives?.length ?? 0) === 0 ? <li>Aucun point fort détecté (profil incomplet).</li> : null}
             {(positives ?? []).map((p: any, i: number) => (
               <li key={i}>
@@ -268,6 +338,8 @@ const AuditDashboard: React.FC<{ profile: ParsedCV; onOpenJson: () => void }> = 
           <ul className="mt-3 list-disc pl-5 space-y-1 text-sm text-gray-700">
             {(improvements?.length ?? 0) === 0 ? <li>Rien de critique détecté.</li> : null}
             {(improvements ?? []).map((p: any, i: number) => (
+            {(improvements?.length ?? 0) === 0 ? <li>Rien de critique détecté.</li> : null}
+            {(improvements ?? []).map((p: any, i: number) => (
               <li key={i}>
                 <span className="font-semibold">{p.label}</span> — {p.recommendation}
               </li>
@@ -276,6 +348,7 @@ const AuditDashboard: React.FC<{ profile: ParsedCV; onOpenJson: () => void }> = 
         </Card>
       </div>
 
+      {/* Table KPI */}
       {/* Table KPI */}
       <Card className="p-0">
         <div className="p-6 border-b border-gray-100">
@@ -304,10 +377,12 @@ const AuditDashboard: React.FC<{ profile: ParsedCV; onOpenJson: () => void }> = 
             </thead>
             <tbody className="text-sm">
               {(metrics ?? []).map((m: any, idx: number) => (
+              {(metrics ?? []).map((m: any, idx: number) => (
                 <tr key={idx} className="border-t">
                   <td className="px-6 py-4 font-semibold text-gray-900">{m.label}</td>
                   <td className="px-6 py-4">
                     <Pill level={m.level}>
+                      {m.level === "good" ? "OK" : m.level === "warn" ? "À améliorer" : m.level === "bad" ? "Manquant" : "Info"}
                       {m.level === "good" ? "OK" : m.level === "warn" ? "À améliorer" : m.level === "bad" ? "Manquant" : "Info"}
                     </Pill>
                   </td>
@@ -315,6 +390,13 @@ const AuditDashboard: React.FC<{ profile: ParsedCV; onOpenJson: () => void }> = 
                   <td className="px-6 py-4 text-gray-600">{m.recommendation}</td>
                 </tr>
               ))}
+              {(metrics?.length ?? 0) === 0 ? (
+                <tr className="border-t">
+                  <td className="px-6 py-4 text-gray-500" colSpan={4}>
+                    Aucun KPI disponible (profil incomplet).
+                  </td>
+                </tr>
+              ) : null}
               {(metrics?.length ?? 0) === 0 ? (
                 <tr className="border-t">
                   <td className="px-6 py-4 text-gray-500" colSpan={4}>
@@ -416,8 +498,11 @@ const Step2Section: React.FC<{
 
 // ---------------------------------------------------------------------------
 // DASHBOARD PAGE (FULL)
+// DASHBOARD PAGE (FULL)
 // ---------------------------------------------------------------------------
 const DashboardPage: React.FC = () => {
+  const [status, setStatus] = useState<"idle" | "uploading" | "analyzing" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
   const [status, setStatus] = useState<"idle" | "uploading" | "analyzing" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -440,6 +525,11 @@ const DashboardPage: React.FC = () => {
 
   const [showDebugModal, setShowDebugModal] = useState(false);
 
+  // ✅ Step2 JSON auto-load (when COMPLETED but step2_json missing)
+  const [step2JsonLoading, setStep2JsonLoading] = useState(false);
+  const [step2JsonLoadError, setStep2JsonLoadError] = useState<string>("");
+
+  // Cleanup
   // ✅ Step2 JSON auto-load (when COMPLETED but step2_json missing)
   const [step2JsonLoading, setStep2JsonLoading] = useState(false);
   const [step2JsonLoadError, setStep2JsonLoadError] = useState<string>("");
@@ -633,6 +723,7 @@ const DashboardPage: React.FC = () => {
           stopPolling();
           setStatus("error");
           setErrorMessage(meta?.error_message || (preview as any).error_message || "L'analyse a échoué côté serveur (voir logs CloudWatch).");
+          setErrorMessage(meta?.error_message || (preview as any).error_message || "L'analyse a échoué côté serveur (voir logs CloudWatch).");
           return;
         }
 
@@ -646,7 +737,12 @@ const DashboardPage: React.FC = () => {
             step1_json: (full as any).step1_json,
             // step2
             step2_json: (full as any).step2_json,
+            // step2
+            step2_json: (full as any).step2_json,
             step2_error: (full as any).step2_error,
+            step2_status: (full as any).step2_status,
+            cv_master_s3_key: (full as any).cv_master_s3_key ?? (full as any)?.meta?.cv_master_s3_key,
+            step2_meta: (full as any).step2_meta ?? (full as any)?.meta?.step2_meta,
             step2_status: (full as any).step2_status,
             cv_master_s3_key: (full as any).cv_master_s3_key ?? (full as any)?.meta?.cv_master_s3_key,
             step2_meta: (full as any).step2_meta ?? (full as any)?.meta?.step2_meta,
@@ -672,6 +768,8 @@ const DashboardPage: React.FC = () => {
   const handleUpload = async (file: File) => {
     setStatus("uploading");
     setErrorMessage("");
+    setStatus("uploading");
+    setErrorMessage("");
     setCandidateData(null);
     setHasData(false);
     setUploadedKey(null);
@@ -688,8 +786,11 @@ const DashboardPage: React.FC = () => {
       const uploadTicketResponse = await fetch(API_UPLOAD_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           filename: file.name,
+          content_type: file.type || "application/pdf",
           content_type: file.type || "application/pdf",
           content_length: file.size,
         }),
@@ -705,6 +806,7 @@ const DashboardPage: React.FC = () => {
       const candidate_id = ticket.candidate_id;
       const key = ticket.key;
       const signed_content_type = ticket.content_type || (file.type || "application/pdf");
+      const signed_content_type = ticket.content_type || (file.type || "application/pdf");
 
       if (!upload_url || !candidate_id || !key) {
         throw new Error("Réponse PostCV invalide: upload_url / candidate_id / key manquants.");
@@ -712,11 +814,17 @@ const DashboardPage: React.FC = () => {
 
       const putRes = await fetch(upload_url, {
         method: "PUT",
+        method: "PUT",
         body: file,
+        headers: { "Content-Type": signed_content_type },
         headers: { "Content-Type": signed_content_type },
       });
 
       if (!putRes.ok) {
+        const hint =
+          putRes.status === 403
+            ? " (403: mismatch Content-Type entre signature et PUT — assure-toi d'envoyer EXACTEMENT le même Content-Type)"
+            : "";
         const hint =
           putRes.status === 403
             ? " (403: mismatch Content-Type entre signature et PUT — assure-toi d'envoyer EXACTEMENT le même Content-Type)"
@@ -726,9 +834,12 @@ const DashboardPage: React.FC = () => {
 
       setUploadedKey(key);
       setStatus("analyzing");
+      setStatus("analyzing");
       startPolling(candidate_id);
     } catch (error: any) {
       console.error(error);
+      setStatus("error");
+      setErrorMessage(error?.message || "Une erreur est survenue.");
       setStatus("error");
       setErrorMessage(error?.message || "Une erreur est survenue.");
     }
@@ -841,7 +952,14 @@ const DashboardPage: React.FC = () => {
             </p>
           </div>
           {status === "success" && candidateData?.candidate_id && (
+          {status === "success" && candidateData?.candidate_id && (
             <div className="flex gap-2">
+              <Button variant="outline" onClick={openStep1Artifact}>
+                Artefact Step1
+              </Button>
+              <Button variant="outline" onClick={() => setShowDebugModal(true)}>
+                Debug (JSON)
+              </Button>
               <Button variant="outline" onClick={openStep1Artifact}>
                 Artefact Step1
               </Button>
@@ -864,12 +982,21 @@ const DashboardPage: React.FC = () => {
                 {status === "analyzing" && "Traitement IA en cours..."}
                 {status === "success" && "Terminé"}
                 {status === "error" && "Erreur"}
+              <Badge
+                variant={status === "success" ? "success" : status === "error" ? "error" : status !== "idle" ? "warning" : "neutral"}
+              >
+                {status === "idle" && "En attente"}
+                {status === "uploading" && "Transfert S3..."}
+                {status === "analyzing" && "Traitement IA en cours..."}
+                {status === "success" && "Terminé"}
+                {status === "error" && "Erreur"}
               </Badge>
             </div>
 
             <FileUpload onUpload={handleUpload} />
 
             <div className="mt-4">
+              {status === "analyzing" && (
               {status === "analyzing" && (
                 <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100 animate-pulse">
                   <div className="flex items-center justify-between">
@@ -889,6 +1016,7 @@ const DashboardPage: React.FC = () => {
               )}
 
               {status === "error" && (
+              {status === "error" && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                   <p className="text-sm text-red-700 flex items-center gap-2 font-semibold">
                     <AlertCircle size={16} /> Échec
@@ -897,6 +1025,7 @@ const DashboardPage: React.FC = () => {
                 </div>
               )}
 
+              {status === "success" && (
               {status === "success" && (
                 <div className="flex flex-col gap-2">
                   <p className="text-sm text-green-600 flex items-center gap-2 font-medium">
@@ -924,20 +1053,26 @@ const DashboardPage: React.FC = () => {
                 <div>
                   <p className="text-xs text-gray-500">Nom détecté</p>
                   <p className="font-bold text-lg">{candidateData?.meta?.full_name || candidateData?.step1_json?.identity?.full_name || "Inconnu"}</p>
+                  <p className="font-bold text-lg">{candidateData?.meta?.full_name || candidateData?.step1_json?.identity?.full_name || "Inconnu"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Titre</p>
+                  <p className="font-medium">{candidateData?.meta?.headline || candidateData?.step1_json?.identity?.headline || "Non spécifié"}</p>
                   <p className="font-medium">{candidateData?.meta?.headline || candidateData?.step1_json?.identity?.headline || "Non spécifié"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Expérience</p>
                   <p className="font-medium text-indigo-600">
                     {typeof candidateData?.meta?.years_of_experience_inferred === "number"
+                    {typeof candidateData?.meta?.years_of_experience_inferred === "number"
                       ? `${candidateData?.meta?.years_of_experience_inferred.toFixed(1)} ans`
+                      : "—"}
                       : "—"}
                   </p>
                 </div>
                 <div className="pt-2">
+                  <Badge variant={step2Status === "FAILED" ? "warning" : step2Status === "COMPLETED" ? "success" : "neutral"}>
+                    Step2: {step2Status}
                   <Badge variant={step2Status === "FAILED" ? "warning" : step2Status === "COMPLETED" ? "success" : "neutral"}>
                     Step2: {step2Status}
                   </Badge>
@@ -953,6 +1088,7 @@ const DashboardPage: React.FC = () => {
         </div>
 
         {hasData && candidateData && (
+          <div className="mt-2 space-y-6">
           <div className="mt-2 space-y-6">
             <AuditDashboard profile={candidateData} onOpenJson={openStep1Artifact} />
 
